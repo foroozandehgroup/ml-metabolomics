@@ -20,6 +20,14 @@ class Data:
 
     @classmethod
     def new_from_csv(cls, fname: str) -> Data:
+        """
+        Creates a new Data class from test data.
+
+        Parameters
+        ----------
+        fname: str
+            File directory (file type must be .csv)
+        """
 
         # parse data into a pandas DataFrame
         cls.test_data = pd.read_csv(f'{fname}')
@@ -123,7 +131,7 @@ class Data:
             
     def _get_pcs(self, n_components):
         if self.pca is None:
-            self._pca = PCA(n_components=n_components)
+            self._pca = PCA(n_components=n_components, svd_solver='randomized')
             self._pca.fit_transform(self._scale_data())
 
         return self.pca
@@ -258,11 +266,14 @@ class Data:
 
         return stat
 
-    def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True):
+    def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True, figure: tuple=None):
         """
         Plot loadings (only 2D supported currently).
         """
-        fig, ax = plt.subplots()
+        if figure is not None:
+            fig, ax = figure
+        else:
+            fig, ax = plt.subplots()
 
         alphas = []
         if sig_labels:
@@ -291,7 +302,7 @@ class Data:
         ax.plot(x_points, [self._upper_quantile_pc1 for i in x_points], c='red', linestyle='--')
         ax.plot(x_points, [self._lower_quantile_pc1 for i in x_points], c='red', linestyle='--')
     
-    def plot_scores(self, scores_matrix: pd.DataFrame):
+    def plot_scores(self, scores_matrix: pd.DataFrame, figure: tuple=None):
         """
         Plots scores. If n_components is greater than 3, automatically plots only
         the first 3 PCs.
@@ -317,19 +328,27 @@ class Data:
             handle.set_linestyle("")
 
         if self.n_components == 2:
-            self._plot_2d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels)    
+            self._plot_2d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure)    
         elif self.n_components >= 3:
-            self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels)
+            self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure)
     
-    def _plot_2d_scores(self, np_scores, colors, legend_elements, id_labels):
-        fig, ax = plt.subplots()
+    def _plot_2d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None):
+        if figure is not None:
+            fig, ax = figure
+        else:  
+            fig, ax = plt.subplots()
+
         ax.scatter(np_scores[:, 1], np_scores[:, 2], c=colors, edgecolors='black', alpha=0.5)
         for i, id in enumerate(id_labels):
             ax.annotate(id, (np_scores[i, 1], np_scores[i, 2]))
         self._add_labels_scores(ax, legend_elements)
         
-    def _plot_3d_scores(self, np_scores, colors, legend_elements, id_labels):
-        fig= plt.figure()
+    def _plot_3d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None):
+        if figure is not None:
+            fig, ax = figure
+        else:       
+            fig= plt.figure()
+
         ax = fig.add_subplot(projection='3d')
         ax.scatter(np_scores[:, 1], np_scores[:, 2], np_scores[:, 3], c=colors, edgecolors='black', alpha=0.5)
         self._add_labels_scores(ax, legend_elements)
@@ -352,12 +371,16 @@ class Data:
         ax.set_ylabel('PC2')
         ax.grid(linestyle='--')
 
-    def plot_vars(self, vars_array: np.ndarray, threshold: float=None, cumulative: bool=False):
+    def plot_vars(self, vars_array: np.ndarray, threshold: float=None, cumulative: bool=False, figure: tuple=None):
         rows = [f'PC{i}' for i in range(1, self.n_components+1)]
-        fig, ax = plt.subplots()
+        if figure is None:
+            fig, ax = plt.subplots()
+        else:
+            fig, ax = figure
+
         if threshold is not None:
             ax.axhline(threshold, color='red', linestyle='--')
-        
+            
         if cumulative:
             ax.bar(rows, np.cumsum(vars_array))
             ax.set_title("Cumulative Variance")
@@ -385,20 +408,27 @@ test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Me
 test_data.set_dataset_classes(control='SPMS', case='RRMS', class_labels={'control': -1, 'case': 1})
 
 ### where to put self.n_components? Currently a class property.
-loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
+#loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
 
-quantiles_matrix = test_data.get_quantiles(loadings_matrix)
+#loadings_matrix = test_data.get_quantiles(loadings_matrix)
 
-test_data.rank_loadings()
-test_data.get_sig_data()
+#test_data.plot_loadings(loadings_matrix)
 
-print(test_data._run_ttests(test_data.pc1_data))
+# quantiles_matrix = test_data.get_quantiles(loadings_matrix)
 
-#test_data.plot_ranked_loadings()
-#test_data.plot_vars(vars_array=vars_array, threshold=0.95, cumulative=True)
-#test_data.plot_loadings(quantiles_matrix, sig_labels=True)
-#test_data.plot_scores(scores_matrix)
+# test_data.rank_loadings()
+# test_data.get_sig_data()
 
+# test_data.plot_ranked_loadings()
+# test_data.plot_vars(vars_array=vars_array, threshold=0.95, cumulative=True)
+# test_data.plot_loadings(quantiles_matrix, sig_labels=True)
+# test_data.plot_scores(scores_matrix)
+
+#print(scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T)
+#print(test_data.scaled_test_data.iloc[:, 2:] - (scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T))
+
+#x_data, y_data = test_data._split_data()
+#print(pd.DataFrame(StandardScaler().fit_transform(x_data)))
 
 ### TO DO
 # check out quantiles and ranked loadings
