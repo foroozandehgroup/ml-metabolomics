@@ -1,9 +1,11 @@
 import sys
 import os
-import sklearn
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import subprocess
+
+import report_plot_funcs as plot
 
 # Import PCA_2class.py
 
@@ -15,36 +17,40 @@ os.chdir(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca\tex
 with open("report.tex", "r") as fh:
     template = fh.read()
 
-# Chucking stuff in
-
 # Getting package versions
-template = template.replace("<SKLEARN_V>", sklearn.__version__)
+template = template.replace("<SKLEARN_V>", plot.sklearn_version)
 
 # Get scaling method
 template = template.replace("<SCALING>", "Standard")
 
 # Create PCA Summary figures (scores, loadings, variances)
-
-loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
-loadings_matrix = test_data.get_quantiles(loadings_matrix, q=0.95)
-
-fig, axs = plt.subplots(2, 2)
-
-axs[0, 0] = test_data.plot_vars(vars_array, figure=(fig, axs[0, 0]))
-axs[1, 0] = test_data.plot_scores(scores_matrix, figure=(fig, axs[1, 0]))
-axs[1, 1] = test_data.plot_loadings(loadings_matrix, figure=(fig, axs[1, 1]))
-
-fig.savefig("summary_figs.pdf")
-
+plot.summary()
 template = template.replace("<SUMMARY_FIGS>", "summary_figs.pdf")
 
-tab = np.arange(16).reshape(4, 4)
-table_text = ""
-for row in tab:
-    table_text += "    " + " & ".join([str(x) for x in row]) + "\\\\\n"
-table_text = table_text[:-3]
+# Get number of loadings in upper and lower quantiles
+template = template.replace("<PC1_LOADINGS>", str(len(plot.test_data.pc1_loadings)))
+template = template.replace("<PC2_LOADINGS>", str(len(plot.test_data.pc2_loadings)))
 
-template = template.replace("<TABLE>", table_text)
+# Plot scores with Hoteling's T2 Confidence Interval
+# template = template.replace("<HOTELLINGS_SCORES>", "")
+template = template.replace("<CONTROL>", str(plot.test_data.original_control))
+template = template.replace("<CASE>", str(plot.test_data.original_case))
+template = template.replace("<NUM_CONTROL>", str(plot.test_data.num_control))
+template = template.replace("<NUM_CASE>", str(plot.test_data.num_case))
+
+# Plot ranked loadings
+plot.ranked_loadings()
+template = template.replace("<UPPER_QUANTILE>", str(plot.upper_quantile))
+template = template.replace("<LOWER_QUANTILE>", str(plot.lower_quantile))
+template = template.replace("<RANKED_LOADINGS>", "ranked_loadings.pdf")
+
+# tab = np.arange(16).reshape(4, 4)
+# table_text = ""
+# for row in tab:
+#     table_text += "    " + " & ".join([str(x) for x in row]) + "\\\\\n"
+# table_text = table_text[:-3]
+
+# template = template.replace("<TABLE>", table_text)
 
 # Save the completed template
 with open("report_complete.tex", "w") as fh:

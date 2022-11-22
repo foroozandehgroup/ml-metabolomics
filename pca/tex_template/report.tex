@@ -1,9 +1,17 @@
 \documentclass[]{article}
 \usepackage{float}
 \usepackage{graphicx}
+\usepackage{blindtext}
+\usepackage{geometry}
+ \geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+ }
 
 \title{Two Class PCA Analysis Report}
-\author{}
+\author{Daniel Alimadadian}
 \date{\today}
 
 \begin{document}
@@ -19,17 +27,39 @@
     Data scaling = \textbf{<SCALING>}
 
     \begin{figure}[h!]
-    \includegraphics{<SUMMARY_FIGS>}
+        \begin{center}
+            \includegraphics{<SUMMARY_FIGS>}    
+        \end{center}
+        \caption{PCA Summary}
+    \end{figure}
+    
+\newpage
+
+\section*{PC1 vs. PC2}
+    Loadings selected from PC1: \textbf{<PC1_LOADINGS>}. Loadings selected from PC2: \textbf{<PC2_LOADINGS>} 
+
+    \begin{figure}[h!]
+        \begin{center}
+            \includegraphics{<SUMMARY_FIGS>}
+        \end{center}
+        \caption{PCA scores plot. <CONTROL>: n = \textbf{<NUM_CONTROL>}, <CASE>: n = \textbf{<NUM_CASE>}}
     \end{figure}
 
-A table:
-\begin{tabular}{ c | c | c | c }
-<TABLE>
-\end{tabular}
+\newpage
 
+\section*{Ranked Loadings}
 
+    \begin{figure}[h!]
+        \begin{center}
+            \includegraphics{<RANKED_LOADINGS>}
+        \end{center}
+        \caption{Ranked loadings plots. Top: (<LOWER_QUANTILE>, <UPPER_QUANTILE>) quantiles
+        represented by dashed red lines. Bottom: significant loadings are labelled.}
+    \end{figure}
 
-
-
+% A table:
+% \begin{tabular}{ c | c | c | c }
+% <TABLE>
+% \end{tabular}
 
 \end{document}
