@@ -68,25 +68,27 @@ class Data:
         orders dataset so that lowest int comes first (i.e. set control as -1 if you would 
         like control to come before case in dataset).
         """
-        self.control = control
-        self.case = case
+        self.original_control = control
+        self.original_case = case
 
         if class_labels is not None:
             for entry in self.entries:
-                if entry.class_ == self.control:
+                if entry.class_ == self.original_control:
                     entry.class_ = class_labels['control']
                 else:
                     entry.class_ = class_labels['case']
             
             for i in range(len(self.entries)):
-                if self.test_data.loc[:,'Class'].iloc[i] == self.control:
+                if self.test_data.loc[:,'Class'].iloc[i] == self.original_control:
                     self.test_data.loc[:,'Class'].iloc[i] = class_labels['control']
                 else:
                     self.test_data.loc[:,'Class'].iloc[i] = class_labels['case']
 
             self.control = class_labels['control']
             self.case = class_labels['case']
-            ### is it necessary to change the attributes to the new values as well?
+
+            self.num_control = self.test_data['Class'].value_counts()[self.control]
+            self.num_case = self.test_data['Class'].value_counts()[self.case]
         
         if sort:
             self.entries = sorted(self.entries, key=lambda entry: entry.class_)
@@ -196,6 +198,7 @@ class Data:
         #quantiles for PC1/PC2 currently
         pc1, pc2 = [j[0] for i, j in self.loadings], [j[1] for i, j in self.loadings]
         
+        self.q = q
         self._upper_quantile_pc1 = np.quantile(pc1, q)
         self._lower_quantile_pc1 = np.quantile(pc1, 1-q)
 
@@ -282,27 +285,48 @@ class Data:
                     alphas.append(0.2)
                 else:
                     alphas.append(1)
-            ax.scatter(loadings_matrix['PC1'], loadings_matrix['PC2'], color='black', alpha=alphas)
+            ax.scatter(loadings_matrix['PC1'], loadings_matrix['PC2'], color='black', s=10, alpha=alphas)
         else:
-            ax.scatter(loadings_matrix['PC1'], loadings_matrix['PC2'], color='black', alpha=0.5)
+            ax.scatter(loadings_matrix['PC1'], loadings_matrix['PC2'], color='black', s=10, alpha=0.5)
 
         self._add_labels_loadings(ax)
     
-    def plot_ranked_loadings(self):
-        fig, ax = plt.subplots()
-        x_points = [i+1 for i, entry in enumerate(self.ranked_loadings)]
-        y_points = [entry[1][0] for entry in self.ranked_loadings]
+    def plot_ranked_loadings(self, ranked_loadings: list, threshold: bool=True, labels: bool=False, figure: tuple=None):
+        """
+        Creates a plot of loadings in incresing order for PC1. Option to plot threshold lines 
+        for upper and lower quartiles, and data labels for significant loadings (i.e above and 
+        below the quartiles).
 
-        ax.scatter(x_points, y_points, c='black', alpha=0.5)
+         Parameters
+        ----------
+        ranked_loadings: list
+            List of tuples in the form (str, np.array)
+        """
+        if figure is not None:
+            fig, ax = figure
+        else:
+            fig, ax = plt.subplots()
+
+        x_points = [i+1 for i, entry in enumerate(ranked_loadings)]
+        y_points = [entry[1][0] for entry in ranked_loadings]
+
+        ax.scatter(x_points, y_points, c='black', s=10, alpha=0.5)
+
+        if labels:
+            for i in range(len(self.pc1_loadings)):
+                ax.annotate(ranked_loadings[i][0], (x_points[i], y_points[i]), fontsize=3)
+                ax.annotate(ranked_loadings[-i-1][0], (x_points[-i-1], y_points[-i-1]), fontsize=3)
+
         ax.set_title('Ranked Loadings')
         ax.set_xlabel('Rank')
         ax.set_ylabel('PC1 Loadings')
 
-        ## quantile threshold lines
-        ax.plot(x_points, [self._upper_quantile_pc1 for i in x_points], c='red', linestyle='--')
-        ax.plot(x_points, [self._lower_quantile_pc1 for i in x_points], c='red', linestyle='--')
-    
-    def plot_scores(self, scores_matrix: pd.DataFrame, figure: tuple=None):
+        # quantile threshold lines
+        if threshold:
+            ax.plot(x_points, [self._upper_quantile_pc1 for i in x_points], c='red', linestyle='--')
+            ax.plot(x_points, [self._lower_quantile_pc1 for i in x_points], c='red', linestyle='--')
+        
+    def plot_scores(self, scores_matrix: pd.DataFrame, figure: tuple=None, fontsize: int=5):
         """
         Plots scores. If n_components is greater than 3, automatically plots only
         the first 3 PCs.
@@ -320,37 +344,37 @@ class Data:
 
         # create custom legend
         legend_elements = [
-            Line2D([0], [0], label=self.control, color='blue', marker='o', markeredgecolor='black', alpha=0.5),
-            Line2D([0], [0], label=self.case, color='green', marker='o', markeredgecolor='black', alpha=0.5)
+            Line2D([0], [0], label=self.original_control, color='blue', marker='o', markeredgecolor='black', alpha=0.5),
+            Line2D([0], [0], label=self.original_case, color='green', marker='o', markeredgecolor='black', alpha=0.5)
             ]
 
         for handle in legend_elements:
             handle.set_linestyle("")
 
         if self.n_components == 2:
-            self._plot_2d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure)    
+            self._plot_2d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure, fontsize=fontsize)    
         elif self.n_components >= 3:
-            self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure)
-    
-    def _plot_2d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None):
+            self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure, fontsize=fontsize)
+
+    def _plot_2d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None, fontsize: int=5):
         if figure is not None:
             fig, ax = figure
         else:  
             fig, ax = plt.subplots()
 
-        ax.scatter(np_scores[:, 1], np_scores[:, 2], c=colors, edgecolors='black', alpha=0.5)
+        ax.scatter(np_scores[:, 1], np_scores[:, 2], c=colors, s=25, edgecolors='black', alpha=0.5)
         for i, id in enumerate(id_labels):
-            ax.annotate(id, (np_scores[i, 1], np_scores[i, 2]))
+            ax.annotate(id, (np_scores[i, 1], np_scores[i, 2]), fontsize=fontsize)
         self._add_labels_scores(ax, legend_elements)
         
-    def _plot_3d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None):
+    def _plot_3d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None, fontsize: int=5):
         if figure is not None:
             fig, ax = figure
         else:       
             fig= plt.figure()
 
         ax = fig.add_subplot(projection='3d')
-        ax.scatter(np_scores[:, 1], np_scores[:, 2], np_scores[:, 3], c=colors, edgecolors='black', alpha=0.5)
+        ax.scatter(np_scores[:, 1], np_scores[:, 2], np_scores[:, 3], c=colors, s=25, edgecolors='black', alpha=0.5)
         self._add_labels_scores(ax, legend_elements)
         ### add text labels for 3d plot
     
@@ -360,7 +384,7 @@ class Data:
         ax.set_xlabel('PC1')
         ax.set_ylabel('PC2')
         ax.grid(linestyle='--')
-        ax.legend(handles=legend_elements, loc='lower left', title='Classes')
+        ax.legend(handles=legend_elements, loc='lower left', title='Classes', prop={'size': 8})
         if hasattr(ax, "set_zlabel"):
             ax.set_zlabel('PC3')
     
@@ -380,13 +404,14 @@ class Data:
 
         if threshold is not None:
             ax.axhline(threshold, color='red', linestyle='--')
-            
+
+        ax.set_title("Explained Variance")    
         if cumulative:
-            ax.bar(rows, np.cumsum(vars_array))
-            ax.set_title("Cumulative Variance")
+            ax.bar(rows, np.cumsum(vars_array*100), edgecolor=(0, 0, 0, 1), color=(0, 0, 0, 0.3))
+            ax.set_ylabel("Cumulative Variance")
         else:
-            ax.bar(rows, vars_array)
-            ax.set_title("Variance per Principle Component")
+            ax.bar(rows, vars_array*100, edgecolor='black', color='black', alpha=0.3)
+            ax.set_ylabel("% of total variance")
 
     @property
     def pca(self):
@@ -408,18 +433,19 @@ test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Me
 test_data.set_dataset_classes(control='SPMS', case='RRMS', class_labels={'control': -1, 'case': 1})
 
 ### where to put self.n_components? Currently a class property.
-#loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
+loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
 
-#loadings_matrix = test_data.get_quantiles(loadings_matrix)
+loadings_matrix = test_data.get_quantiles(loadings_matrix)
 
 #test_data.plot_loadings(loadings_matrix)
 
 # quantiles_matrix = test_data.get_quantiles(loadings_matrix)
 
-# test_data.rank_loadings()
-# test_data.get_sig_data()
+test_data.rank_loadings()
+test_data.get_sig_data()
 
-# test_data.plot_ranked_loadings()
+test_data.plot_ranked_loadings(ranked_loadings=test_data.ranked_loadings)
+
 # test_data.plot_vars(vars_array=vars_array, threshold=0.95, cumulative=True)
 # test_data.plot_loadings(quantiles_matrix, sig_labels=True)
 # test_data.plot_scores(scores_matrix)
