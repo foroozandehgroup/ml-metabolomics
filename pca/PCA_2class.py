@@ -37,7 +37,7 @@ class Data:
             cls.test_data.iloc[i,2:].to_numpy() 
             for i in range(0, len(cls.test_data))
         ]
-
+        
         labels = list(cls.test_data.columns.values)[2:]
 
         entries = [
@@ -240,35 +240,57 @@ class Data:
 
         return self.sig_data
     
-    def _run_ttests(self, data):
+    def _run_ttests(self, data: pd.DataFrame):
         """
         Takes pandas DataFrame of test data as input (e.g. pc1_data). Returns DataFrame of p_values and significance
         levels for each label (i.e. frequency range).
         """
 
         # initialise p_values DataFrame populated with zeros
-        #p_values = pd.DataFrame(np.zeros((len(data.columns[2:]), 3)), columns=['p-value', 'Significance', 'Bonferroni'], index=[data.columns[2:]])
+        p_values = pd.DataFrame(np.zeros((len(data.columns[2:]), 3)), columns=['p-value', 'Significance', 'Bonferroni'], index=[data.columns[2:]])
 
-        ### THIS IS NOT USING SCALED DATA
+        ### iterating through pandas dataframe for t-test is slow - code to be optimised using numpy
+
+        # query dataframe to give only control/case data
+        self._control_data = data.query(f'Class == {self.control}')
+        self._case_data = data.query(f'Class == {self.case}')
+        bonf_factor = len(data.columns[2:])
 
         for i, col in enumerate(data.columns[2:]):
 
             # initialise DataFrame for mean, SD, and SEM for each column
             stat = pd.DataFrame(np.zeros((2, 3)), columns=['Mean', 'SD', 'SEM'], index=[self.control, self.case])
 
-            for class_ in [self.control, self.case]:
-                pass
+            # set mean, SD, and SEM for control and case for each column
+            stat.loc[self.control, 'Mean'] = np.mean(self._control_data.loc[:, col])
+            stat.loc[self.case, 'Mean'] = np.mean(self._case_data.loc[:, col])
+            stat.loc[self.control, 'SD'] = np.std(self._control_data.loc[:, col])
+            stat.loc[self.case, 'SD'] = np.std(self._case_data.loc[:, col])
+            stat.loc[self.control, 'SEM'] = (stat.loc[self.control, 'SD'])/np.sqrt(self.num_control)
+            stat.loc[self.case, 'SEM'] = (stat.loc[self.case, 'SD'])/np.sqrt(self.num_case)
+            
+            # run t-test
+            p_value = stats.ttest_ind_from_stats(mean1=stat.loc[self.control, 'Mean'], std1=stat.loc[self.control, 'SD'], nobs1=self.num_control,
+                                                    mean2=stat.loc[self.case, 'Mean'], std2=stat.loc[self.case, 'SD'], nobs2=self.num_case)
+            
+            if p_value[1] < 0.001:
+                significance = '***'
+            elif p_value[1] < 0.01:
+                significance = '**'
+            elif p_value[1] <0.05:
+                significance = '*'
+            else:
+                significance = 'NS'
 
             if i == 0:
-                p_value = stats.ttest_1samp(data.loc[:, col], popmean=0)
-                p_values = pd.DataFrame([np.array([p_value[1], 0, 0])], columns=['p-value', 'Significance', 'Bonferroni'], index=[col])
-            else:
-                p_value = stats.ttest_1samp(data.loc[:, col], popmean=0)
-                p_values.loc[col] = np.array([p_value[1], 0, 0])
+                p_values = pd.DataFrame([np.array([p_value[1], significance, p_value[1] * bonf_factor])], columns=['p-value', 'Significance', 'Bonferroni'], index=[col])
 
+            else:    
+                p_values.loc[col] = np.array([p_value[1], significance, p_value[1] * bonf_factor])
 
-        return stat
+        print(p_values)
 
+        
     def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True, figure: tuple=None):
         """
         Plot loadings (only 2D supported currently).
@@ -320,6 +342,7 @@ class Data:
         ax.set_title('Ranked Loadings')
         ax.set_xlabel('Rank')
         ax.set_ylabel('PC1 Loadings')
+        ax.margins(x=0)
 
         # quantile threshold lines
         if threshold:
@@ -430,7 +453,7 @@ class Entry:
 test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\test_data.csv")
 
 # plots don't work without class_labels dict - cannot append strings into numpy array
-test_data.set_dataset_classes(control='SPMS', case='RRMS', class_labels={'control': -1, 'case': 1})
+test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
 ### where to put self.n_components? Currently a class property.
 loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
@@ -444,7 +467,7 @@ loadings_matrix = test_data.get_quantiles(loadings_matrix)
 test_data.rank_loadings()
 test_data.get_sig_data()
 
-test_data.plot_ranked_loadings(ranked_loadings=test_data.ranked_loadings)
+print(test_data._run_ttests(test_data.test_data))
 
 # test_data.plot_vars(vars_array=vars_array, threshold=0.95, cumulative=True)
 # test_data.plot_loadings(quantiles_matrix, sig_labels=True)
