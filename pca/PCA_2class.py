@@ -89,6 +89,7 @@ class Data:
 
             self.num_control = self.test_data['Class'].value_counts()[self.control]
             self.num_case = self.test_data['Class'].value_counts()[self.case]
+            self.num_classes = len(class_labels)
         
         if sort:
             self.entries = sorted(self.entries, key=lambda entry: entry.class_)
@@ -211,7 +212,10 @@ class Data:
         
         self.sig_loadings = self.pc1_loadings + self.pc2_loadings
         
-        self._sig_loadings_labels = [i[0] for i in self.sig_loadings]
+        self._pc1_loadings_labels = [i[0] for i in self.pc1_loadings]
+        self._pc2_loadings_labels = [i[0] for i in self.pc2_loadings]
+        self._sig_loadings_labels = self._pc1_loadings_labels + self._pc2_loadings_labels
+
         labels_column = [
             label if label in self._sig_loadings_labels else "" for label in self.labels
             ]
@@ -240,14 +244,21 @@ class Data:
 
         return self.sig_data
     
-    def _run_ttests(self, data: pd.DataFrame):
+    def run_ttests(self, sort_p_values: bool=False):
         """
         Takes pandas DataFrame of test data as input (e.g. pc1_data). Returns DataFrame of p_values and significance
         levels for each label (i.e. frequency range).
         """
 
+        # get test_data from class
+        data = self.test_data
+
         # initialise p_values DataFrame populated with zeros
         p_values = pd.DataFrame(np.zeros((len(data.columns[2:]), 3)), columns=['p-value', 'Significance', 'Bonferroni'], index=[data.columns[2:]])
+
+        # initialise PC1/PC2 stats dictionaries
+        pc1_stats = {}
+        pc2_stats = {}
 
         ### iterating through pandas dataframe for t-test is slow - code to be optimised using numpy
 
@@ -268,10 +279,16 @@ class Data:
             stat.loc[self.case, 'SD'] = np.std(self._case_data.loc[:, col])
             stat.loc[self.control, 'SEM'] = (stat.loc[self.control, 'SD'])/np.sqrt(self.num_control)
             stat.loc[self.case, 'SEM'] = (stat.loc[self.case, 'SD'])/np.sqrt(self.num_case)
+
+            # store stats for top PC1/PC2 loadings - for plotting bar charts
+            if col in self._pc1_loadings_labels:
+                pc1_stats[col] = stat
+            elif col in self._pc2_loadings_labels:
+                pc2_stats[col] = stat
             
             # run t-test
             p_value = stats.ttest_ind_from_stats(mean1=stat.loc[self.control, 'Mean'], std1=stat.loc[self.control, 'SD'], nobs1=self.num_control,
-                                                    mean2=stat.loc[self.case, 'Mean'], std2=stat.loc[self.case, 'SD'], nobs2=self.num_case)
+                                                mean2=stat.loc[self.case, 'Mean'], std2=stat.loc[self.case, 'SD'], nobs2=self.num_case)
             
             if p_value[1] < 0.001:
                 significance = '***'
@@ -283,12 +300,15 @@ class Data:
                 significance = 'NS'
 
             if i == 0:
-                p_values = pd.DataFrame([np.array([p_value[1], significance, p_value[1] * bonf_factor])], columns=['p-value', 'Significance', 'Bonferroni'], index=[col])
+                p_values = pd.DataFrame([np.array([np.round(p_value[1], 6), significance, np.round(p_value[1] * bonf_factor, 6)])], columns=['p-value', 'Significance', 'Bonferroni'], index=[col])
 
             else:    
-                p_values.loc[col] = np.array([p_value[1], significance, p_value[1] * bonf_factor])
+                p_values.loc[col] = np.array([np.round(p_value[1], 6), significance, np.round(p_value[1] * bonf_factor, 6)])
+        
+        if sort_p_values:
+            p_values = p_values.sort_values(['p-value', 'Bonferroni'], key=lambda val: val.astype(float))
 
-        print(p_values)
+        return TTest(p_values=p_values, pc1_stats=pc1_stats, pc2_stats=pc2_stats) 
 
         
     def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True, figure: tuple=None):
@@ -433,9 +453,20 @@ class Data:
             ax.bar(rows, np.cumsum(vars_array*100), edgecolor=(0, 0, 0, 1), color=(0, 0, 0, 0.3))
             ax.set_ylabel("Cumulative Variance")
         else:
-            ax.bar(rows, vars_array*100, edgecolor='black', color='black', alpha=0.3)
+            ax.bar(rows, vars_array*100, edgecolor=(0, 0, 0, 1), color=(0, 0, 0, 0.3), alpha=0.3)
             ax.set_ylabel("% of total variance")
 
+    def plot_ttests(self, ttests: TTest):
+        pc1_stats = ttests.pc1_stats
+        pc2_stats = ttests.pc2_stats
+        
+        fig, ax = plt.subplots()
+
+        for feature_name, stats in pc1_stats.items():
+            ax.bar([self.original_control, self.original_case], [stats.loc[self.control, 'Mean'], stats.loc[self.case, 'Mean']], color=['green', 'blue'], yerr=[stats.loc[self.control, 'SEM'], stats.loc[self.case, 'SEM']], capsize=20)
+            ax.set_title(feature_name)
+            plt.show()
+      
     @property
     def pca(self):
         return getattr(self, "_pca", None)
@@ -450,13 +481,19 @@ class Entry:
     class_: str
     integs: np.ndarray
 
+@dataclass
+class TTest:
+    p_values: pd.DataFrame
+    pc1_stats: dict
+    pc2_stats: dict
+
 test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\test_data.csv")
 
 # plots don't work without class_labels dict - cannot append strings into numpy array
 test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
 ### where to put self.n_components? Currently a class property.
-loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
+loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=20), test_data.get_scores(), test_data.get_vars(ratio=True)
 
 loadings_matrix = test_data.get_quantiles(loadings_matrix)
 
@@ -467,9 +504,11 @@ loadings_matrix = test_data.get_quantiles(loadings_matrix)
 test_data.rank_loadings()
 test_data.get_sig_data()
 
-print(test_data._run_ttests(test_data.test_data))
+ttests = test_data.run_ttests()
 
-# test_data.plot_vars(vars_array=vars_array, threshold=0.95, cumulative=True)
+# test_data.plot_ttests(ttests)
+
+test_data.plot_vars(vars_array=vars_array, threshold=95, cumulative=True)
 # test_data.plot_loadings(quantiles_matrix, sig_labels=True)
 # test_data.plot_scores(scores_matrix)
 
