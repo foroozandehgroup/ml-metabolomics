@@ -25,6 +25,7 @@ test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'contro
 loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=2), test_data.get_scores(), test_data.get_vars(ratio=True)
 quantiles_matrix = test_data.get_quantiles(loadings_matrix, q=0.95)
 ranked_loadings_matrix = test_data.rank_loadings()
+ttests = test_data.run_ttests(sort_p_values=True)
 
 upper_quantile = test_data.q
 lower_quantile = round(1 - test_data.q, 2)
@@ -63,4 +64,25 @@ def ranked_loadings():
 
     fig.tight_layout()
     fig.savefig("ranked_loadings.pdf")
+
+def p_values_tables(top_loadings: bool=False):
+
+    p_value_text = ""
+
+    for index, row in zip(ttests.p_values.index, ttests.p_values.to_numpy()):
+
+        if top_loadings:
+            if index in test_data._sig_loadings_labels:
+                p_value_text += index + " & " + " & ".join(row) + "\\\\\n"
+
+        else:
+            p_value_text += index + " & " + " & ".join(row) + "\\\\\n"
+    
+    return p_value_text[:-3]
+
+def sig_bar_charts():
+    fig, axs = plt.subplots(5, 2)
+    fig.set_figwidth(483.69684 / 72.27)
+    fig.set_figheight(650 / 72.27)
+
 

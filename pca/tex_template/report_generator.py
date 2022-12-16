@@ -44,19 +44,13 @@ template = template.replace("<UPPER_QUANTILE>", str(plot.upper_quantile))
 template = template.replace("<LOWER_QUANTILE>", str(plot.lower_quantile))
 template = template.replace("<RANKED_LOADINGS>", "ranked_loadings.pdf")
 
-# tab = np.arange(16).reshape(4, 4)
-# table_text = ""
-# for row in tab:
-#     table_text += "    " + " & ".join([str(x) for x in row]) + "\\\\\n"
-# table_text = table_text[:-3]
-
-# template = template.replace("<TABLE>", table_text)
+# Plot p-values table
+template = template.replace("<SIG_P_VALUES>", plot.p_values_tables(top_loadings=True))
+template = template.replace("<ALL_P_VALUES>", plot.p_values_tables())
 
 # Save the completed template
 with open("report_complete.tex", "w") as fh:
     fh.write(template)
-
-
 
 subprocess.run(["pdflatex", "report_complete.tex"], shell=True)
 

@@ -2,6 +2,7 @@
 \usepackage{float}
 \usepackage{graphicx}
 \usepackage{blindtext}
+\usepackage{longtable}
 \usepackage{geometry}
  \geometry{
  a4paper,
@@ -57,9 +58,32 @@
         represented by dashed red lines. Bottom: significant loadings are labelled.}
     \end{figure}
 
-% A table:
-% \begin{tabular}{ c | c | c | c }
-% <TABLE>
-% \end{tabular}
+\newpage
+
+\section*{Univariate Analysis}
+
+    \begin{longtable}{ c c c c }
+    \caption{Top loadings only. Student's t-test p-values < 0.05, 0.01, 0.001 are represented by *, ** and 
+    *** respectively. NS: not significant.} \label{tab:long} \\
+    \hline \\
+        & p-value & Significance & Bonferroni \\
+    \hline \\
+    \endfirsthead
+    \endhead
+    <SIG_P_VALUES>   
+    \end{longtable}
+
+    \newpage
+
+    \begin{longtable}{ c c c c }
+    \caption{All features. Student's t-test p-values < 0.05, 0.01, 0.001 are represented by *, ** and 
+    *** respectively. NS: not significant.} \label{tab:long} \\
+    \hline \\
+        & p-value & Significance & Bonferroni \\
+    \hline \\
+    \endfirsthead
+    \endhead
+    <ALL_P_VALUES>   
+    \end{longtable}
 
 \end{document}
