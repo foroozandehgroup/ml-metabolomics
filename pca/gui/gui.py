@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
-
+from dataclasses import dataclass
 
  # Initialising root class for the app, which inherits from tkinter.Tk
 class Window(tk.Tk):
@@ -104,9 +104,35 @@ class Window(tk.Tk):
 
         ### Check for errors
 
+
+        # Create output attribute to be used in PCA
+        self.output = OutputData(
+            name=self.name,
+            filepath=self.filepath,
+            scaling=self.scaling,
+            q=self.q,
+            control=self.control,
+            case=self.case,
+            control_colour=self.control_colour,
+            case_colour=self.case_colour
+        )
+
         # Close app after data has been entered
         self.destroy()
-            
+
+@dataclass
+class OutputData():
+    """
+    Class for tracking output of the GUI.
+    """
+    name: str
+    filepath: str
+    scaling: str
+    q: float
+    control: str
+    case: str
+    control_colour: str
+    case_colour: str
 
 if __name__ == '__main__':
     app = Window()
