@@ -17,7 +17,7 @@ class Window(tk.Tk):
         self.user_info()
         self.data()
         self.plots()
-        self.close_buttons()
+        self.enter_button()
 
     def user_info(self):
         self.user_info_frame = tk.LabelFrame(self.frame, text="User Information")
@@ -37,12 +37,9 @@ class Window(tk.Tk):
         self.filepath_label.grid(row=0, column=0, sticky="w", padx=(10, 0), pady=10)
         self.filepath_entry = tk.Entry(self.data_frame, width=80)
         self.filepath_entry.grid(row=0, column=1, padx=10, pady=10)
-        self.filepath_button =tk.Button(self.data_frame, text="Select")
+        self.filepath_button =tk.Button(self.data_frame, text="Select", command=self.get_filepath)
         self.filepath_button.grid(row=0, column=2, sticky="news", padx=(0, 10), pady=10)
     
-        # Get filepath from filedialog
-        # self.filepath = filedialog.askopenfilename(title="Select a file")
-        
         # Scaling method entry
         self.scaling_label = tk.Label(self.data_frame, text="Scaling Method")
         self.scaling_label.grid(row=1, column=0, sticky="w", padx=(10, 0), pady=10)
@@ -55,6 +52,16 @@ class Window(tk.Tk):
         self.sig_level_entry = tk.Spinbox(self.data_frame, from_=0, to=1, increment=0.01)
         self.sig_level_entry.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=10)
     
+    def get_filepath(self):
+        # Delete current text in Entry box
+        self.filepath_entry.delete(0, tk.END)
+
+        # Open directory to choose filepath
+        self.filepath = filedialog.askopenfilename(title="Select input data", filetypes=(("csv files", "*.csv"), ("All files", "*.*")))
+        
+        # Paste filepath text into Entry box
+        self.filepath_entry.insert(tk.END, self.filepath)
+
     def plots(self):
         self.plots_frame = tk.LabelFrame(self.frame, text="Plotting")
         self.plots_frame.grid(row=2, column=0, sticky="news", padx=20, pady=20)
@@ -81,12 +88,25 @@ class Window(tk.Tk):
         self.case_colour_entry.grid(row=1, column=3, sticky="w", padx=(10, 0), pady=10)
 
 
-    def close_buttons(self):
-        
-        # Enter button
-        self.enter = tk.Button(self.frame, text="Enter data")
-        self.enter.grid(row=3, column=0, sticky="news", padx=20, pady=20)        
+    def enter_button(self):
+        self.enter = tk.Button(self.frame, text="Enter data", command=self.enter_data)
+        self.enter.grid(row=3, column=0, sticky="news", padx=20, pady=20)
 
+    def enter_data(self):
+        self.name = self.name_entry.get()
+        self.filepath = self.filepath_entry.get()
+        self.scaling = self.scaling_entry.get()
+        self.q = self.sig_level_entry.get()
+        self.control = self.control_entry.get()
+        self.case = self.case_entry.get()
+        self.control_colour = self.control_colour_entry.get().lower()
+        self.case_colour = self.case_colour_entry.get().lower()
+
+        ### Check for errors
+
+        # Close app after data has been entered
+        self.destroy()
+            
 
 if __name__ == '__main__':
     app = Window()
