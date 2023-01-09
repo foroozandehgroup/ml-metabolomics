@@ -1,58 +1,47 @@
-import sys
-import os
-import matplotlib.pyplot as plt
-import matplotlib
-import numpy as np
+from sklearn import __version__ as sklearn_version
 import subprocess
+from .report_plot_funcs import PCAPlot
 
-import report_plot_funcs as plot
+def generate(plot: PCAPlot):
 
-# Import PCA_2class.py
+    # Loading the template
+    with open(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca\tex_template\report.tex", "r") as fh:
+        template = fh.read()
 
-sys.path.append(os.path.abspath(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca"))
-from PCA_2class import *
+    # Getting package versions
+    template = template.replace("<SKLEARN_V>", sklearn_version)
 
-# Loading the template
-os.chdir(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca\tex_template")
-with open("report.tex", "r") as fh:
-    template = fh.read()
+    # Get scaling method
+    template = template.replace("<SCALING>", "Standard")
 
-# Getting package versions
-template = template.replace("<SKLEARN_V>", plot.sklearn_version)
+    # Create PCA Summary figures (scores, loadings, variances)
+    template = template.replace("<SUMMARY_FIGS>", "summary_figs.pdf")
 
-# Get scaling method
-template = template.replace("<SCALING>", "Standard")
+    # Get number of loadings in upper and lower quantiles
+    template = template.replace("<PC1_LOADINGS>", str(len(plot.pcaplot.pc1_loadings)))
+    template = template.replace("<PC2_LOADINGS>", str(len(plot.pcaplot.pc2_loadings)))
 
-# Create PCA Summary figures (scores, loadings, variances)
-plot.summary()
-template = template.replace("<SUMMARY_FIGS>", "summary_figs.pdf")
+    # Plot scores with Hoteling's T2 Confidence Interval
+    # template = template.replace("<HOTELLINGS_SCORES>", "")
+    template = template.replace("<CONTROL>", str(plot.pcaplot.original_control))
+    template = template.replace("<CASE>", str(plot.pcaplot.original_case))
+    template = template.replace("<NUM_CONTROL>", str(plot.pcaplot.num_control))
+    template = template.replace("<NUM_CASE>", str(plot.pcaplot.num_case))
 
-# Get number of loadings in upper and lower quantiles
-template = template.replace("<PC1_LOADINGS>", str(len(plot.test_data.pc1_loadings)))
-template = template.replace("<PC2_LOADINGS>", str(len(plot.test_data.pc2_loadings)))
+    # Plot ranked loadings
+    template = template.replace("<UPPER_QUANTILE>", str(plot.pcaplot.upper_quantile))
+    template = template.replace("<LOWER_QUANTILE>", str(plot.pcaplot.lower_quantile))
+    template = template.replace("<RANKED_LOADINGS>", "ranked_loadings.pdf")
 
-# Plot scores with Hoteling's T2 Confidence Interval
-# template = template.replace("<HOTELLINGS_SCORES>", "")
-template = template.replace("<CONTROL>", str(plot.test_data.original_control))
-template = template.replace("<CASE>", str(plot.test_data.original_case))
-template = template.replace("<NUM_CONTROL>", str(plot.test_data.num_control))
-template = template.replace("<NUM_CASE>", str(plot.test_data.num_case))
+    # Plot p-values table
+    template = template.replace("<SIG_P_VALUES>", plot.p_values_tables(pcaplot=plot.pcaplot, top_loadings=True))
+    template = template.replace("<ALL_P_VALUES>", plot.p_values_tables(pcaplot=plot.pcaplot))
 
-# Plot ranked loadings
-plot.ranked_loadings()
-template = template.replace("<UPPER_QUANTILE>", str(plot.upper_quantile))
-template = template.replace("<LOWER_QUANTILE>", str(plot.lower_quantile))
-template = template.replace("<RANKED_LOADINGS>", "ranked_loadings.pdf")
+    # Save the completed template
+    with open("report_complete.tex", "w") as fh:
+        fh.write(template)
 
-# Plot p-values table
-template = template.replace("<SIG_P_VALUES>", plot.p_values_tables(top_loadings=True))
-template = template.replace("<ALL_P_VALUES>", plot.p_values_tables())
-
-# Save the completed template
-with open("report_complete.tex", "w") as fh:
-    fh.write(template)
-
-subprocess.run(["pdflatex", "report_complete.tex"], shell=True)
+    subprocess.run(["pdflatex", "report_complete.tex"], shell=True)
 
 
 # tempfile - to create a temporary directory for log files
