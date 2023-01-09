@@ -102,26 +102,25 @@ class Window(tk.Tk):
         self.control_colour = self.control_colour_entry.get().lower()
         self.case_colour = self.case_colour_entry.get().lower()
 
-        ### Check for errors
-
-
         # Create output attribute to be used in PCA
-        self.output = OutputData(
+        self.guidata = GUIData(
             name=self.name,
             filepath=self.filepath,
             scaling=self.scaling,
-            q=self.q,
+            q=float(self.q),
             control=self.control,
             case=self.case,
             control_colour=self.control_colour,
             case_colour=self.case_colour
         )
 
+        ### Check for errors
+
         # Close app after data has been entered
-        self.destroy()
+        self.quit()
 
 @dataclass
-class OutputData():
+class GUIData():
     """
     Class for tracking output of the GUI.
     """
