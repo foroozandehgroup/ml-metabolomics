@@ -30,7 +30,7 @@ class Data:
         """
 
         # parse data into a pandas DataFrame
-        cls.test_data = pd.read_csv(f'{fname}')
+        cls.test_data = pd.read_csv(fname)
         ids = cls.test_data.loc[:, 'ID'].to_numpy()
         classes = cls.test_data.loc[:, 'Class'].to_numpy()
         integs = [
@@ -46,7 +46,7 @@ class Data:
         ]
 
         return cls(entries, labels)
-
+    
     def get_entry_from_id(self, id: int, show_class: bool=False):
         """
         Gets entry from id. By default, only integs are shown. If show_class is 
@@ -149,10 +149,10 @@ class Data:
 
         pca = self._get_pcs(n_components=self.n_components)
         cols = [f'PC{i}' for i in range(1, self.n_components+1)]
-        loadings = pd.DataFrame(pca.components_.T, columns=cols, index=self.labels)
-        self.loadings = [(a,b) for a, b in zip(self.labels, loadings.to_numpy())]
+        self.loadings_matrix = pd.DataFrame(pca.components_.T, columns=cols, index=self.labels)
+        self.loadings = [(a,b) for a, b in zip(self.labels, self.loadings_matrix.to_numpy())]
 
-        return loadings
+        return self.loadings_matrix
         ### check loading matrix scaling: https://stats.stackexchange.com/questions/104306/what-is-the-difference-between-loadings-and-correlation-loadings-in-pca-and/104640#10464
     
     def get_scores(self, n_components: int=2, keep_classes: bool=True):
@@ -175,9 +175,11 @@ class Data:
             y_data = y_data.reshape(-1, 1)
             scores_matrix = np.hstack((y_data, scores_matrix))
             cols.insert(0, 'Class')
-            return pd.DataFrame(scores_matrix, columns=cols, index=ids)
+            self.scores_matrix = pd.DataFrame(scores_matrix, columns=cols, index=ids)
+            return self.scores_matrix
         else:
-            return pd.DataFrame(scores_matrix, columns=cols, index=ids)
+            self.scores_matrix = pd.DataFrame(scores_matrix, columns=cols, index=ids)
+            return self.scores_matrix
     
     def get_vars(self, n_components: int=2, ratio: bool=False):
         """
@@ -190,9 +192,11 @@ class Data:
         pca = self._get_pcs(n_components=self.n_components)
 
         if ratio:
-            return pca.explained_variance_ratio_
+            self.vars_array = pca.explained_variance_ratio_
+            return self.vars_array
         else:
-            return pca.explained_variance_
+            self.vars_array = pca.explained_variance_
+            return self.vars_array
     
     def get_quantiles(self, loadings_matrix: pd.DataFrame, q: float=0.95):
         
@@ -222,14 +226,16 @@ class Data:
 
         loadings_matrix['Labels'] = np.array(labels_column).T
 
-        return loadings_matrix
+        self.quantiles_matrix = loadings_matrix
+
+        return self.quantiles_matrix
     
     def rank_loadings(self):
         """
         Sorts loadings from smallest to largest. Sorts based off the value for PC1.
         """
-        self.ranked_loadings = sorted(self.loadings, key= lambda x: x[1][0])
-        return self.ranked_loadings
+        self.ranked_loadings_matrix = sorted(self.loadings, key= lambda x: x[1][0])
+        return self.ranked_loadings_matrix
     
     def get_sig_data(self):
         """
@@ -308,7 +314,9 @@ class Data:
         if sort_p_values:
             p_values = p_values.sort_values(['p-value', 'Bonferroni'], key=lambda val: val.astype(float))
 
-        return TTest(p_values=p_values, pc1_stats=pc1_stats, pc2_stats=pc2_stats) 
+        self.ttests = TTest(p_values=p_values, pc1_stats=pc1_stats, pc2_stats=pc2_stats)
+        
+        return self.ttests
 
         
     def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True, figure: tuple=None):
@@ -466,7 +474,7 @@ class Data:
             ax.bar([self.original_control, self.original_case], [stats.loc[self.control, 'Mean'], stats.loc[self.case, 'Mean']], color=['green', 'blue'], yerr=[stats.loc[self.control, 'SEM'], stats.loc[self.case, 'SEM']], capsize=20)
             ax.set_title(feature_name)
             plt.show()
-      
+
     @property
     def pca(self):
         return getattr(self, "_pca", None)
@@ -487,52 +495,52 @@ class TTest:
     pc1_stats: dict
     pc2_stats: dict
 
-test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\test_data.csv")
 
-# plots don't work without class_labels dict - cannot append strings into numpy array
-test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
+if __name__ == "__main__":
+    test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\test_data.csv")
 
-### where to put self.n_components? Currently a class property.
-loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=20), test_data.get_scores(), test_data.get_vars(ratio=True)
+    # plots don't work without class_labels dict - cannot append strings into numpy array
+    test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
-loadings_matrix = test_data.get_quantiles(loadings_matrix)
+    ### where to put self.n_components? Currently a class property.
+    loadings_matrix, scores_matrix, vars_array = test_data.get_loadings(n_components=20), test_data.get_scores(), test_data.get_vars(ratio=True)
 
-#test_data.plot_loadings(loadings_matrix)
+    loadings_matrix = test_data.get_quantiles(loadings_matrix)
 
-# quantiles_matrix = test_data.get_quantiles(loadings_matrix)
+    #test_data.plot_loadings(loadings_matrix)
 
-test_data.rank_loadings()
-test_data.get_sig_data()
+    # quantiles_matrix = test_data.get_quantiles(loadings_matrix)
 
-ttests = test_data.run_ttests()
+    test_data.rank_loadings()
+    test_data.get_sig_data()
 
-# test_data.plot_ttests(ttests)
+    ttests = test_data.run_ttests()
 
-test_data.plot_vars(vars_array=vars_array, threshold=95, cumulative=True)
-# test_data.plot_loadings(quantiles_matrix, sig_labels=True)
-# test_data.plot_scores(scores_matrix)
+    # test_data.plot_ttests(ttests)
 
-#print(scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T)
-#print(test_data.scaled_test_data.iloc[:, 2:] - (scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T))
+    test_data.plot_vars(vars_array=vars_array, threshold=95, cumulative=True)
+    # test_data.plot_loadings(quantiles_matrix, sig_labels=True)
+    # test_data.plot_scores(scores_matrix)
 
-#x_data, y_data = test_data._split_data()
-#print(pd.DataFrame(StandardScaler().fit_transform(x_data)))
+    #print(scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T)
+    #print(test_data.scaled_test_data.iloc[:, 2:] - (scores_matrix.iloc[:,1:] @ loadings_matrix.iloc[:, :2].T))
 
-### TO DO
-# check out quantiles and ranked loadings
-# clean up all plots
-# create file with questions + next steps
+    #x_data, y_data = test_data._split_data()
+    #print(pd.DataFrame(StandardScaler().fit_transform(x_data)))
 
-#### General rule - using get methods outputs pandas dataframes, but attributes use numpy arrays
-### ttests in pandas dataframes due to use of strings e.g. significance level
+    ### TO DO
+    # check out quantiles and ranked loadings
+    # clean up all plots
+    # create file with questions + next steps
 
-# plot spectrum
-#fig, ax = plt.subplots()
-#x_vals = np.linspace(0, 1, len(test_data.get_entry_from_id(1)))
-#ax.plot(x_vals, test_data.get_entry_from_id(20))
-#ax.plot(x_vals, test_data.get_entry_from_id(29))
+    #### General rule - using get methods outputs pandas dataframes, but attributes use numpy arrays
+    ### ttests in pandas dataframes due to use of strings e.g. significance level
+
+    # plot spectrum
+    #fig, ax = plt.subplots()
+    #x_vals = np.linspace(0, 1, len(test_data.get_entry_from_id(1)))
+    #ax.plot(x_vals, test_data.get_entry_from_id(20))
+    #ax.plot(x_vals, test_data.get_entry_from_id(29))
 
 
-plt.show()
-
-
+    plt.show()
