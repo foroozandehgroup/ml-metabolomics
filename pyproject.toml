@@ -1,0 +1,26 @@
+[build-system]
+requires = [
+    "setuptools>42",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Metabolomics_ML"
+version = "1.0"
+authors = [
+    {name = "Daniel Alimadadian", email = "danielalimadadian01@gmail.com"}
+]
+license = {file = "LICENSE"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "scipy",
+    "pandas",
+    "scikit-learn"
+]
+
+[tool.setuptools]
+packages = ["Metabolomics_ML"]
