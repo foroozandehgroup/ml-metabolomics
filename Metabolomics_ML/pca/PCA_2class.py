@@ -7,13 +7,16 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score
+from sklearn.model_selection import KFold
 from scipy import stats
+from scipy.linalg import eig
 from pathlib import Path
 from dataclasses import dataclass
 
 @dataclass
 class Data:
-    entries: list
+    entries: list[Entry]
     labels: list
 
     @classmethod
@@ -117,11 +120,15 @@ class Data:
         """
         if self.scaled_data is None:
             x_data, y_data = self._split_data()
-            self._scaled_data = StandardScaler().fit_transform(x_data)
-            scaled_test_data = pd.DataFrame(self._scaled_data, columns=self.labels)
-            scaled_test_data.insert(0, column='Class', value=y_data)
-            scaled_test_data.insert(0, column='ID', value=[entry.id for entry in self.entries])
-            self.scaled_test_data = scaled_test_data
+
+            # Standard scaling by default -- do not use scikit-learn StandardScaler as this uses unbiased
+            # definition of standard deviation, as opposed to numpy/pandas which used the biased defintion.
+            scaled_data = pd.DataFrame(x_data, columns=self.labels, index=[entry.id for entry in self.entries]) 
+            scaled_data = (scaled_data - scaled_data.mean())/scaled_data.std()
+            self._scaled_data = scaled_data.to_numpy()
+
+            scaled_data.insert(0, column='Class', value=y_data)
+            self.scaled_test_data = scaled_data
 
         return self.scaled_data
         ### allow option for scaling method
@@ -131,11 +138,35 @@ class Data:
         return getattr(self, "_scaled_data", None)
             
     def _get_pcs(self, n_components):
+        """
+        If the pca attribute exists, it is returned. Otherwise, this methods finds the optimal
+        number of principal components through a combination of K-fold cross-validation and 
+        calculating the Q2 statistic for each successive principal component - the component
+        where Q2 is at a maximum is chosen for the PCA model.
+        """
         if self.pca is None:
+
+            # scale the data and initialise the scaled_data attribute
+            self._scale_data()
+
             self._pca = PCA(n_components=n_components, svd_solver='randomized')
-            self._pca.fit_transform(self._scale_data())
+            self._pca.fit_transform(self.scaled_data)
 
         return self.pca
+
+    def _optimise_pcs(self):
+
+            cov_matrix = self.scaled_test_data.iloc[:, 1:]
+            cov_matrix = cov_matrix.cov().values
+
+            total_variation = cov_matrix.trace()
+
+            w, v = eig(cov_matrix)
+            
+            # initialise folds - 7 folds used with shuffling in this case
+            kf = KFold(n_splits=7, shuffle=True)
+
+
 
     def get_loadings(self, n_components: int=2):
         """
@@ -161,11 +192,14 @@ class Data:
         """
         if self.n_components is None:
             self._n_components = n_components
+        
+        if self.scaled_data is None:
+            self._scale_data()
 
         x_data, y_data = self._split_data(keep_id=True)
         ids, integs = x_data
-        scaled_integs = StandardScaler().fit_transform(integs)
-        scores_matrix = scaled_integs @ np.array(self.get_loadings(self.n_components))
+
+        scores_matrix = self.scaled_data @ np.array(self.get_loadings(self.n_components))
 
         cols = [f'PC{i}' for i in range(1, self.n_components+1)]
 
@@ -500,8 +534,9 @@ class Data:
 
     def plot_ttests(self, ttests: TTest):
         
-        # initialising the index of the first figure object
-        figure_number = 1
+        # initialising the index of the first figure object as an attribute
+        # so that number of pages can be tracked in LaTeX document
+        self.ttest_figure_number = 0
 
         # looping through each PC, which is a dictionary of key-value pairs in the form:
         # label: DataFrame of stats
@@ -513,8 +548,8 @@ class Data:
             current_plot = 0
             
             while num_plots < len(pc):
-                fig = plt.figure(figure_number)
-                figure_number += 1
+                self.ttest_figure_number += 1
+                fig = plt.figure(self.ttest_figure_number)             
                 
                 for i in range(1, 10):
                     if current_plot < len(pc.keys()):
@@ -535,7 +570,6 @@ class Data:
                         current_plot += 1
                 
                 fig.tight_layout()
-            
     
     @staticmethod
     def _format_ttests(figure: tuple[plt.Figure, plt.Axes], feature_name: str, ttests: TTest):
@@ -545,7 +579,7 @@ class Data:
         ax.set_ylabel('Spectral Integral (AU)', fontsize=8)
         ax.set_title(feature_name, fontsize=8)
         ax.tick_params(which='both', labelsize=8)
-        ax.text(0.5, 0.85, ttests.p_values.loc[feature_name, 'Significance'], verticalalignment='top', horizontalalignment='center', fontsize=8, color='black', transform=fig.transFigure)
+        ax.text(0.5, 0.90, ttests.p_values.loc[feature_name, 'Significance'], verticalalignment='top', horizontalalignment='center', fontsize=9, color='black', transform=ax.transAxes)
 
     @property
     def pca(self):
@@ -574,15 +608,20 @@ if __name__ == "__main__":
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
     
-    test_data.get_loadings(n_components=1)
-    test_data.get_scores()
+    loadings_matrix = test_data.get_loadings(n_components=2)
+    scores_matrix = test_data.get_scores()
     test_data.get_vars(ratio=True)
     test_data.get_quantiles(test_data.loadings_matrix, q=0.95)
     test_data.rank_loadings()
     test_data.run_ttests()
 
-    # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 3))
 
-    test_data.plot_ttests(test_data.ttests)
+    print(scores_matrix)
+
+    # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2))
+
+    # test_data.plot_ttests(test_data.ttests)
+
+    # print(test_data._optimise_pcs())
 
     plt.show()
