@@ -10,8 +10,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 from scipy import stats
-from scipy.linalg import eig
 from pathlib import Path
+import pca as pcalib
 from dataclasses import dataclass
 
 @dataclass
@@ -156,25 +156,91 @@ class Data:
 
     def _optimise_pcs(self):
 
-            cov_matrix = self.scaled_test_data.iloc[:, 1:]
-            cov_matrix = cov_matrix.cov().values
+            if self.scaled_data is None:
+                self._scale_data()
 
-            total_variation = cov_matrix.trace()
+            scaled_data_pd = self.scaled_test_data.iloc[:, 1:]
 
-            w, v = eig(cov_matrix)
+            # get covariance matrix of the scaled data
+            cov_matrix = scaled_data_pd.cov(numeric_only=False).values
+
+            # get trace of covariance matrix i.e. TSS (total sum of squares)
+            tss = cov_matrix.trace()
             
-            # initialise folds - 7 folds used with shuffling in this case
-            kf = KFold(n_splits=7, shuffle=True)
+            # initialise arrays to store q2 and r2 values
+            q2, r2 = [], []
+            
+            # iterate through increasing numbers of PCs (only up to 11 for demonstrative purposes)
+            for pc in range(1, 20):
+                # initialise folds - 7-fold used in this case
+                kf = KFold(n_splits=7)
 
+                # fit PCA model on scaled data
+                pca = PCA(n_components=pc)
+                scores = pca.fit_transform(scaled_data_pd)
+                
+                # reconstruct data matrix from scores
+                recon = pca.inverse_transform(scores)
 
+                # use in-built r2 function between initial scaled data and the reconstructed data for i PCs
+                r2_i = r2_score(scaled_data_pd, recon)
 
-    def get_loadings(self, n_components: int=2):
+                # add r2 value to array of r2 values
+                r2.append(r2_i)
+                
+                # initialise a matrix for the reconstructed matrix for q2 calculation
+                mat_test = np.zeros(shape=scaled_data_pd.shape)
+
+                # get indices of columns in train and test sets according to cross-valdiation method
+                for train_index, test_index in kf.split(scaled_data_pd):
+
+                    # split data into train and test sets for each fold
+                    x_train, x_test = scaled_data_pd.iloc[train_index], scaled_data_pd.iloc[test_index]
+
+                    # fit PCA model on training data
+                    pca_cv = PCA(n_components=pc)
+                    pca_cv.fit(x_train)
+
+                    # calculate scores of test set and reconstruct data
+                    scores_test = pca_cv.transform(x_test)
+                    recon_test = pca_cv.inverse_transform(scores_test)
+
+                    # insert reconstructed data into columns of final reconstructed matrix
+                    mat_test[test_index, :] = recon_test
+                
+                # get residual matrix for this PC
+                res = scaled_data_pd - mat_test
+                
+                # calculate PRESS (prediction error sum of squares) as the trace of the covariance matrix of residuals
+                press = res.cov(numeric_only=False).values.trace()
+
+                # q2 for ith PC calculated as 1 - PRESS/TSS
+                q2_i = 1 - press/tss
+                
+                if pc == 1 or q2_i - q2[-1] > q2[-1]:
+                    # add q2 for current PC to array of q2 values if q2 is higher than the previous q2
+                    q2.append(q2_i)
+                else:
+                    break
+
+            q2 = np.array(q2)
+
+            # find differences in q2 i.e. q2 for the ith component as oppposed to cumulative q2
+            self.q2_array = np.insert(q2[1:] - q2[0:-1], 0, q2[0])
+
+            # returns the optimal number of PCs (minimum 2 PCs to allow plotting)
+            return max(2, len(self.q2_array))
+
+    def get_loadings(self, n_components=None):
         """
         Returns loadings matrix as a Pandas DataFrame. Takes in n_components as an input,
         set to 2 PCs by default
         """
         if self.n_components is None:
-            self._n_components = n_components
+            if n_components is None:
+                self._n_components = self._optimise_pcs()
+            else:
+                self._n_components = n_components
 
         pca = self._get_pcs(n_components=self.n_components)
         cols = [f'PC{i}' for i in range(1, self.n_components+1)]
@@ -369,8 +435,7 @@ class Data:
         self.ttests = TTest(p_values=p_values, pcs_stats=pcs_stats)
         
         return self.ttests
-
-        
+ 
     def plot_loadings(self, loadings_matrix: pd.DataFrame, sig_labels: bool=True, figure: tuple=None):
         """
         Plot loadings (only 2D supported currently).
@@ -602,26 +667,21 @@ class TTest:
 
 
 if __name__ == "__main__":
-    test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\test_data.csv")
+    test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
 
     # plots don't work without class_labels dict - cannot append strings into numpy array
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
     
-    loadings_matrix = test_data.get_loadings(n_components=2)
+    loadings_matrix = test_data.get_loadings()
     scores_matrix = test_data.get_scores()
     test_data.get_vars(ratio=True)
     test_data.get_quantiles(test_data.loadings_matrix, q=0.95)
     test_data.rank_loadings()
     test_data.run_ttests()
 
-
-    print(scores_matrix)
-
     # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2))
 
     # test_data.plot_ttests(test_data.ttests)
-
-    # print(test_data._optimise_pcs())
 
     plt.show()
