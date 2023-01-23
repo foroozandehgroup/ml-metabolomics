@@ -4,138 +4,20 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 from scipy import stats
-from pathlib import Path
-import pca as pcalib
 from dataclasses import dataclass
 
+from Metabolomics_ML.pca.data import Data
+
 @dataclass
-class Data:
-    entries: list[Entry]
-    labels: list
-
-    @classmethod
-    def new_from_csv(cls, fname: str) -> Data:
-        """
-        Creates a new Data class from test data.
-
-        Parameters
-        ----------
-        fname: str
-            File directory (file type must be .csv)
-        """
-
-        # parse data into a pandas DataFrame
-        cls.test_data = pd.read_csv(fname)
-        ids = cls.test_data.loc[:, 'ID'].to_numpy()
-        classes = cls.test_data.loc[:, 'Class'].to_numpy()
-        integs = [
-            cls.test_data.iloc[i,2:].to_numpy() 
-            for i in range(0, len(cls.test_data))
-        ]
-        
-        labels = list(cls.test_data.columns.values)[2:]
-
-        entries = [
-            Entry(id_, class_, integ)
-            for id_, class_, integ in zip(ids, classes, integs)
-        ]
-
-        return cls(entries, labels)
-    
-    def get_entry_from_id(self, id: int, show_class: bool=False):
-        """
-        Gets entry from id. By default, only integs are shown. If show_class is 
-        True, then output is in the form [class_: str, integs: np.ndarray].
-        """
-        for entry in self.entries:
-            if entry.id == id:
-                if show_class:
-                    return [entry.class_, entry.integs]
-                else:
-                    return entry.integs    
-    ### raise exception if id is not in entry ids
-
-    def set_dataset_classes(self, control: str, case: str, class_labels: dict=None, sort=False):
-        """
-        Sets control and case for the dataset (currently 1 control and 1 case supported).
-        Takes optional input class_labels (dict, keys: 'control', 'case') 
-        which turns string inputs for control/case into ints (e.g. -1, 1). Automatically 
-        orders dataset so that lowest int comes first (i.e. set control as -1 if you would 
-        like control to come before case in dataset).
-        """
-        self.original_control = control
-        self.original_case = case
-
-        if class_labels is not None:
-            for entry in self.entries:
-                if entry.class_ == self.original_control:
-                    entry.class_ = class_labels['control']
-                else:
-                    entry.class_ = class_labels['case']
-            
-            for i in range(len(self.entries)):
-                if self.test_data.loc[:,'Class'].iloc[i] == self.original_control:
-                    self.test_data.loc[:,'Class'].iloc[i] = class_labels['control']
-                else:
-                    self.test_data.loc[:,'Class'].iloc[i] = class_labels['case']
-
-            self.control = class_labels['control']
-            self.case = class_labels['case']
-
-            self.num_control = self.test_data['Class'].value_counts()[self.control]
-            self.num_case = self.test_data['Class'].value_counts()[self.case]
-            self.num_classes = len(class_labels)
-        
-        if sort:
-            self.entries = sorted(self.entries, key=lambda entry: entry.class_)
-    
-    def _split_data(self, keep_id: bool=False):
-        """
-        Splits test data into integs and classes. Returns a tuple 
-        (x_data, y_data). If keep_id is True, returns x_data as a list:
-        [ids: np.ndarray, integs: np.ndarray]
-        """
-        if keep_id:
-            x_data = (
-                np.array([entry.id for entry in self.entries]), 
-                np.array([entry.integs for entry in self.entries])
-            )
-        else:
-            x_data = np.array([entry.integs for entry in self.entries])
-        y_data = np.array([entry.class_ for entry in self.entries])
-
-        return x_data, y_data
-
-    def _scale_data(self):
-        """
-        Scales data: currently only standard scaling supported (zero mean and unit variance).
-        Initialises scaled_test_data attribute, which presents scaled data as a pandas 
-        DataFrame (same form as test_data).
-        """
-        if self.scaled_data is None:
-            x_data, y_data = self._split_data()
-
-            # Standard scaling by default -- do not use scikit-learn StandardScaler as this uses unbiased
-            # definition of standard deviation, as opposed to numpy/pandas which used the biased defintion.
-            scaled_data = pd.DataFrame(x_data, columns=self.labels, index=[entry.id for entry in self.entries]) 
-            scaled_data = (scaled_data - scaled_data.mean())/scaled_data.std()
-            self._scaled_data = scaled_data.to_numpy()
-
-            scaled_data.insert(0, column='Class', value=y_data)
-            self.scaled_test_data = scaled_data
-
-        return self.scaled_data
-        ### allow option for scaling method
-    
-    @property
-    def scaled_data(self):
-        return getattr(self, "_scaled_data", None)
+class PCAData(Data):
+    """
+    PCAData inherits from Data class, where class is instantiated from .csv or pandas
+    DataFrame.
+    """
             
     def _get_pcs(self, n_components):
         """
@@ -170,8 +52,16 @@ class Data:
             # initialise arrays to store q2 and r2 values
             q2, r2 = [], []
             
-            # iterate through increasing numbers of PCs (only up to 11 for demonstrative purposes)
-            for pc in range(1, 20):
+            # iterate through increasing numbers of PCs - if n_components attribute exists
+            # (e.g. initialised in get_loadings method), then all of these components show up in
+            # final q2 array
+
+            if self.n_components is None:
+                pcs_up_to = len(self.test_data)
+            else:
+                pcs_up_to = self.n_components
+
+            for pc in range(1, pcs_up_to + 1):
                 # initialise folds - 7-fold used in this case
                 kf = KFold(n_splits=7)
 
@@ -217,11 +107,14 @@ class Data:
                 # q2 for ith PC calculated as 1 - PRESS/TSS
                 q2_i = 1 - press/tss
                 
-                if pc == 1 or q2_i - q2[-1] > q2[-1]:
-                    # add q2 for current PC to array of q2 values if q2 is higher than the previous q2
-                    q2.append(q2_i)
+                if self.n_components is None:
+                    if pc == 1 or q2_i - q2[-1] > q2[-1]:
+                        # add q2 for current PC to array of q2 values if q2 is higher than the previous q2
+                        q2.append(q2_i)
+                    else:
+                        break
                 else:
-                    break
+                    q2.append(q2_i)
 
             q2 = np.array(q2)
 
@@ -233,8 +126,9 @@ class Data:
 
     def get_loadings(self, n_components=None):
         """
-        Returns loadings matrix as a Pandas DataFrame. Takes in n_components as an input,
-        set to 2 PCs by default
+        Returns loadings matrix as a Pandas DataFrame. By default, optimises number of
+        components to plot by calculating Q2 statistic. Takes in optional input n_components
+        which can manually choose number of components.
         """
         if self.n_components is None:
             if n_components is None:
@@ -350,19 +244,6 @@ class Data:
         self.ranked_loadings_matrix = sorted(self.loadings, key= lambda x: x[1][0])
         return self.ranked_loadings_matrix
     
-    def get_sig_data(self):
-        """
-        Returns (and initialises an attribute self.sig_data) a pandas DataFrame
-        with all entries but only at significant peak frequencies given by the
-        upper and lower quantiles. 
-        """
-        self.pc1_data = self.test_data.loc[:, ['ID', 'Class'] + [j[0] for j in self.pc1_loadings]]
-        self.pc2_data = self.test_data.loc[:, ['ID', 'Class'] + [j[0] for j in self.pc2_loadings]]
-
-        self.sig_data = self.test_data.loc[:,['ID', 'Class'] + self._sig_loadings_labels]
-
-        return self.sig_data
-    
     def run_ttests(self, sort_p_values: bool=False):
         """
         Takes pandas DataFrame of test data as input (e.g. pc1_data). Returns DataFrame of p_values and significance
@@ -373,7 +254,7 @@ class Data:
         data = self.test_data
 
         # initialise p_values DataFrame populated with zeros
-        p_values = pd.DataFrame(np.zeros((len(data.columns[2:]), 3)), columns=['p-value', 'Significance', 'Bonferroni'], index=[data.columns[2:]])
+        p_values = pd.DataFrame(np.zeros((len(data.columns[1:]), 3)), columns=['p-value', 'Significance', 'Bonferroni'], index=[data.columns[1:]])
 
         # initialise stats list of dictionaries for all PCs - index 0 shows stats dict for PC1 etc.
         pcs_stats = []
@@ -383,14 +264,14 @@ class Data:
         # query dataframe to give only control/case data
         self._control_data = data.query(f'Class == {self.control}')
         self._case_data = data.query(f'Class == {self.case}')
-        bonf_factor = len(data.columns[2:])
+        bonf_factor = len(data.columns[1:])
 
         for pc_labels in self._sig_labels_list:
             
             # initialise dictionary for storing stats for each label
             pc_stats = {}
 
-            for i, col in enumerate(data.columns[2:]):
+            for i, col in enumerate(data.columns[1:]):
 
                 # initialise DataFrame for mean, SD, and SEM for each column
                 stat = pd.DataFrame(np.zeros((2, 3)), columns=['Mean', 'SD', 'SEM'], index=[self.control, self.case])
@@ -553,7 +434,7 @@ class Data:
         ### add text labels for 3d plot
     
     @staticmethod
-    def _add_labels_scores(ax, legend_elements, pcs: tuple):
+    def _add_labels_scores(ax: plt.Axes, legend_elements, pcs: tuple):
         
         first_pc, second_pc = pcs
 
@@ -566,7 +447,7 @@ class Data:
             ax.set_zlabel('PC3')
     
     @staticmethod
-    def _add_labels_loadings(ax):
+    def _add_labels_loadings(ax: plt.Axes):
         ax.set_title('Loadings')
         ax.set_xlabel('PC1')
         ax.set_ylabel('PC2')
@@ -587,7 +468,7 @@ class Data:
             fig, ax = figure
 
         if threshold is not None:
-            ax.axhline(threshold, color='red', linestyle='--')
+            ax.axhline(threshold*100, color='red', linestyle='--')
 
         ax.set_title("Explained Variance")    
         if cumulative:
@@ -655,30 +536,25 @@ class Data:
         return getattr(self, "_n_components", None)
 
 @dataclass
-class Entry:
-    id: int
-    class_: str
-    integs: np.ndarray
-
-@dataclass
 class TTest:
     p_values: pd.DataFrame
     pcs_stats: list[dict]
 
 
 if __name__ == "__main__":
-    test_data = Data.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
+    test_data = PCAData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
 
     # plots don't work without class_labels dict - cannot append strings into numpy array
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
-    
     loadings_matrix = test_data.get_loadings()
     scores_matrix = test_data.get_scores()
     test_data.get_vars(ratio=True)
     test_data.get_quantiles(test_data.loadings_matrix, q=0.95)
     test_data.rank_loadings()
     test_data.run_ttests()
+
+    print(test_data.scaled_test_data)
 
     # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2))
 
