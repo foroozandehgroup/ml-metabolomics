@@ -3,12 +3,9 @@ import matplotlib
 import os
 import sys
 
-from Metabolomics_ML.pca.PCA_2class import Data
+from Metabolomics_ML.pca.PCA_2class import PCAData
 from Metabolomics_ML.gui.gui import GUIData
 
-# sys.path.append(os.path.abspath(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca"))
-
-# os.chdir(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\pca")
 
 # Change matplotlib figures to LaTeX style
 matplotlib.use("pgf")
@@ -22,13 +19,12 @@ matplotlib.rcParams.update({
 class PCAPlot():
 
     def __init__(self):
-        # super().__init__()
         pass
 
     @classmethod
-    def run_all(cls, guidata):
+    def run_all(cls, guidata: GUIData):
 
-        cls.pcaplot = Data.new_from_csv(guidata.filepath)
+        cls.pcaplot = PCAData.new_from_csv(guidata.filepath)
         cls.pcaplot.set_dataset_classes(control=guidata.control, case=guidata.case, class_labels={'control': -1, 'case': 1})
         
         cls.pcaplot.guidata = guidata
@@ -36,7 +32,7 @@ class PCAPlot():
         cls.pcaplot.upper_quantile = guidata.q
         cls.pcaplot.lower_quantile = round(1 - guidata.q, 2)
 
-        cls.pcaplot.get_loadings(n_components=2)
+        cls.pcaplot.get_loadings()
         cls.pcaplot.get_scores()
         cls.pcaplot.get_vars(ratio=True)
         cls.pcaplot.get_quantiles(cls.pcaplot.loadings_matrix, q=guidata.q)
@@ -46,11 +42,12 @@ class PCAPlot():
         cls.summary(pcaplot=cls.pcaplot)
         cls.ranked_loadings(pcaplot=cls.pcaplot)
         cls.p_values_tables(pcaplot=cls.pcaplot)
+        cls.bar_charts(pcaplot=cls.pcaplot)
 
         return cls
 
     @staticmethod
-    def summary(pcaplot: Data):
+    def summary(pcaplot: PCAData):
         """
         Creates a summary plot, including scores, loadings, and variance per principle component.
         """
@@ -64,10 +61,10 @@ class PCAPlot():
         axs[1, 1] = pcaplot.plot_loadings(pcaplot.quantiles_matrix, figure=(fig, axs[1, 1]))
 
         fig.tight_layout()
-        fig.savefig("summary_figs.pdf")
+        fig.savefig(rf"{pcaplot.guidata.save_dir_path}\summary_figs.pdf")
     
     @staticmethod
-    def ranked_loadings(pcaplot: Data):
+    def ranked_loadings(pcaplot: PCAData):
         """
         Creates ranked loadings plots based off PC1 values, with threshold lines for upper 
         and lower quantiles, as well as labels for significant loadings. 
@@ -81,10 +78,10 @@ class PCAPlot():
         axs[1] = pcaplot.plot_ranked_loadings(pcaplot.ranked_loadings_matrix, figure=(fig, axs[1]), threshold=False, labels=True)
 
         fig.tight_layout()
-        fig.savefig("ranked_loadings.pdf")
+        fig.savefig(rf"{pcaplot.guidata.save_dir_path}\ranked_loadings.pdf")
 
     @staticmethod
-    def p_values_tables(pcaplot: Data, top_loadings: bool=False):
+    def p_values_tables(pcaplot: PCAData, top_loadings: bool=False):
 
         p_value_text = ""
 
@@ -98,6 +95,19 @@ class PCAPlot():
                 p_value_text += index + " & " + " & ".join(row) + "\\\\\n"
         
         return p_value_text[:-3]
+    
+    @staticmethod
+    def bar_charts(pcaplot: PCAData):
+        """
+        Plots bar charts for the p-values of all significant loadings for the top PCs.
+        """
+        
+        ttest_figs = pcaplot.plot_ttests(pcaplot.ttests)
+
+        for i, (fig, fig_pc) in enumerate(ttest_figs):
+            fig.set_figwidth(483.69684 / 72.27)
+            fig.set_figheight(650 / 72.27)
+            fig.savefig(rf"{pcaplot.guidata.save_dir_path}\ttest_{i:03}_{fig_pc}")
 
 
 def hotelings_scores():
@@ -109,3 +119,5 @@ def sig_bar_charts():
     fig.set_figheight(650 / 72.27)
 
 
+if __name__ == "__main__":
+    pass
