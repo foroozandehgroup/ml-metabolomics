@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
 from sklearn.metrics import r2_score
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, LeaveOneOut
 from scipy import stats
 from dataclasses import dataclass
 
@@ -44,7 +44,7 @@ class PCAData(Data):
             scaled_data_pd = self.scaled_test_data.iloc[:, 1:]
 
             # get covariance matrix of the scaled data
-            cov_matrix = scaled_data_pd.cov(numeric_only=False).values
+            cov_matrix = scaled_data_pd.cov().values
 
             # get trace of covariance matrix i.e. TSS (total sum of squares)
             tss = cov_matrix.trace()
@@ -102,7 +102,7 @@ class PCAData(Data):
                 res = scaled_data_pd - mat_test
                 
                 # calculate PRESS (prediction error sum of squares) as the trace of the covariance matrix of residuals
-                press = res.cov(numeric_only=False).values.trace()
+                press = res.cov().values.trace()
 
                 # q2 for ith PC calculated as 1 - PRESS/TSS
                 q2_i = 1 - press/tss
@@ -480,26 +480,34 @@ class PCAData(Data):
 
     def plot_ttests(self, ttests: TTest):
         
-        # initialising the index of the first figure object as an attribute
-        # so that number of pages can be tracked in LaTeX document
-        self.ttest_figure_number = 0
+        ttest_figure_number = plt.gcf().number
+
+        # if no figure currently exists, reset ttest_figure_number so plots start from
+        # figure 1
+        if ttest_figure_number == 1:
+            ttest_figure_number = 0
+
+        # initialise list of figure objects to be used when plotting in
+        # LaTeX document
+        figure_list = []
 
         # looping through each PC, which is a dictionary of key-value pairs in the form:
         # label: DataFrame of stats
 
-        for pc in ttests.pcs_stats:
+        for num_pc, pc in enumerate(ttests.pcs_stats, 1): 
+
             # total number of plots
             num_plots = 0
             # get index of current plot
             current_plot = 0
             
             while num_plots < len(pc):
-                self.ttest_figure_number += 1
-                fig = plt.figure(self.ttest_figure_number)             
+                ttest_figure_number += 1
+                fig = plt.figure(ttest_figure_number)             
                 
-                for i in range(1, 10):
+                for i in range(1, 13):
                     if current_plot < len(pc.keys()):
-                        current_ax = fig.add_subplot(3, 3, i)
+                        current_ax = fig.add_subplot(4, 3, i)
 
                         # get stats for current plot
                         feature_name = list(pc.keys())[current_plot]
@@ -516,6 +524,9 @@ class PCAData(Data):
                         current_plot += 1
                 
                 fig.tight_layout()
+                figure_list.append((fig, num_pc))
+        
+        return figure_list
     
     @staticmethod
     def _format_ttests(figure: tuple[plt.Figure, plt.Axes], feature_name: str, ttests: TTest):
@@ -554,10 +565,8 @@ if __name__ == "__main__":
     test_data.rank_loadings()
     test_data.run_ttests()
 
-    print(test_data.scaled_test_data)
-
     # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2))
 
-    # test_data.plot_ttests(test_data.ttests)
+    fig_list = test_data.plot_ttests(test_data.ttests)
 
     plt.show()
