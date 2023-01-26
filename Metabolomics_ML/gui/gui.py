@@ -17,6 +17,7 @@ class Window(tk.Tk):
         self.user_info()
         self.data()
         self.plots()
+        self.save_dir()
         self.enter_button()
 
     def user_info(self):
@@ -87,10 +88,31 @@ class Window(tk.Tk):
         self.case_colour_entry = ttk.Combobox(self.plots_frame, state="readonly", values=["Green", "Blue", "Red", "Yellow"])
         self.case_colour_entry.grid(row=1, column=3, sticky="w", padx=(10, 0), pady=10)
 
+    def save_dir(self):
+        self.save_dir_frame = tk.LabelFrame(self.frame, text="Save")
+        self.save_dir_frame.grid(row=3, column=0, sticky="news", padx=20, pady=20)
+
+        # Save directory entry
+        self.save_dir_label = tk.Label(self.save_dir_frame, text="Save Here")
+        self.save_dir_label.grid(row=0, column=0, sticky="w", padx=(10, 0), pady=10)
+        self.save_dir_entry = tk.Entry(self.save_dir_frame, width=80)
+        self.save_dir_entry.grid(row=0, column=1, padx=10, pady=10)
+        self.save_dir_button = tk.Button(self.save_dir_frame, text="Select", command=self.get_save_dir)
+        self.save_dir_button.grid(row=0, column=2, sticky="news", padx=(0, 10), pady=10)
+    
+    def get_save_dir(self):
+        # Delete current text in Entry box
+        self.save_dir_entry.delete(0, tk.END)
+
+        # Open directory to choose filepath
+        self.save_dir_path = filedialog.askdirectory(title="Select save location")
+
+        # Paste filepath text into Entry box
+        self.save_dir_entry.insert(tk.END, self.save_dir_path)
 
     def enter_button(self):
         self.enter = tk.Button(self.frame, text="Enter data", command=self.enter_data)
-        self.enter.grid(row=3, column=0, sticky="news", padx=20, pady=20)
+        self.enter.grid(row=4, column=0, sticky="news", padx=20, pady=20)
 
     def enter_data(self):
         self.name = self.name_entry.get()
@@ -101,6 +123,7 @@ class Window(tk.Tk):
         self.case = self.case_entry.get()
         self.control_colour = self.control_colour_entry.get().lower()
         self.case_colour = self.case_colour_entry.get().lower()
+        self.save_dir_path = self.save_dir_entry.get()
 
         # Create output attribute to be used in PCA
         self.guidata = GUIData(
@@ -111,7 +134,8 @@ class Window(tk.Tk):
             control=self.control,
             case=self.case,
             control_colour=self.control_colour,
-            case_colour=self.case_colour
+            case_colour=self.case_colour,
+            save_dir_path=self.save_dir_path
         )
 
         ### Check for errors
@@ -132,6 +156,7 @@ class GUIData():
     case: str
     control_colour: str
     case_colour: str
+    save_dir_path: str
 
 if __name__ == '__main__':
     app = Window()
