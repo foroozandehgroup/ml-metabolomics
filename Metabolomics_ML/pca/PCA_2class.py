@@ -10,7 +10,7 @@ from sklearn.model_selection import KFold, LeaveOneOut
 from scipy import stats
 from dataclasses import dataclass
 
-from Metabolomics_ML.pca.data import Data
+from Metabolomics_ML.base.data import Data
 
 @dataclass
 class PCAData(Data):
@@ -375,34 +375,37 @@ class PCAData(Data):
             ax.plot(x_points, [self._upper_quantile_pc1 for i in x_points], c='red', linestyle='--')
             ax.plot(x_points, [self._lower_quantile_pc1 for i in x_points], c='red', linestyle='--')
         
-    def plot_scores(self, scores_matrix: pd.DataFrame, pcs: tuple=(1, 2), figure: tuple=None, hotelling: float=None, fontsize: int=5):
+    def plot_scores(self, scores_matrix: pd.DataFrame, pcs: tuple=(1, 2), figure: tuple=None, hotelling: float=None, fontsize: int=5, colours: tuple=('blue', 'green')):
         """
         Plots scores. By default, plots the first 2 PCs. Optional tuple input pcs allows you to choose
         which PCs to plot (e.g. pcs=(1, 3) plots PC1 against PC3). Takes float hotelling as a parameter if you would like the
         scores plot to contain Hotelling's T2 confidence interval around the scores
         for each class. Float represents confidence interval.
         """
-        colors = []
+        control_colour, case_colour = colours
+        
+        colour_list = []
         # get class values from numpy to speed up run time
+        # Bug fix: assumes class labels are kept in scores_matrix
         id_labels = scores_matrix.index
         np_scores = scores_matrix.to_numpy()
 
         for class_ in np_scores[:,0]:
             if class_ == self.control:
-                colors.append('blue')
+                colour_list.append(control_colour)
             else:
-                colors.append('green')
+                colour_list.append(case_colour)
 
         # create custom legend
         legend_elements = [
-            Line2D([0], [0], label=self.original_control, color='blue', marker='o', markeredgecolor='black', alpha=0.5),
-            Line2D([0], [0], label=self.original_case, color='green', marker='o', markeredgecolor='black', alpha=0.5)
+            Line2D([0], [0], label=self.original_control, color=control_colour, marker='o', markeredgecolor='black', alpha=0.7),
+            Line2D([0], [0], label=self.original_case, color=case_colour, marker='o', markeredgecolor='black', alpha=0.7)
             ]
 
         for handle in legend_elements:
             handle.set_linestyle("")
 
-        self._plot_2d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, pcs=pcs, figure=figure, hotelling=hotelling, fontsize=fontsize)    
+        self._plot_2d_scores(np_scores=np_scores, colors=colour_list, legend_elements=legend_elements, id_labels=id_labels, pcs=pcs, figure=figure, hotelling=hotelling, fontsize=fontsize)    
         # elif self.n_components >= 3:
         #     self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure, fontsize=fontsize)
 
@@ -414,7 +417,7 @@ class PCAData(Data):
 
         first_pc, second_pc = pcs
 
-        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colors, s=25, edgecolors='black', alpha=0.5)
+        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colors, s=25, edgecolors='black', alpha=0.7)
         for i, id in enumerate(id_labels):
             ax.annotate(id, (np_scores[i, first_pc], np_scores[i, second_pc]), fontsize=fontsize)
         self._add_labels_scores(ax, legend_elements, pcs=pcs)
