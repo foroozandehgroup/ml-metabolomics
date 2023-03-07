@@ -5,6 +5,8 @@ import numpy as np
 @dataclass
 class Data:
     test_data: pd.DataFrame
+    labels: list
+    entries: list
 
     @classmethod
     def new_from_csv(cls, fname: str):
@@ -20,34 +22,49 @@ class Data:
         # get data as a pandas DataFrame
         test_data = pd.read_csv(fname)
 
-        cls.labels, cls.entries = cls._get_entries_from_data(test_data)
+        labels, entries = cls._get_entries_from_data(test_data)
 
-        test_data = test_data.set_index('ID')
+        if 'ID' in test_data.columns:
+            test_data = test_data.set_index('ID')
 
-        return cls(test_data)
+        return cls(test_data, labels, entries)
 
     @classmethod
     def new_from_df(cls, df: pd.DataFrame):
         
-        cls.labels, cls.entries = cls._get_entries_from_data(df)
+        labels, entries = cls._get_entries_from_data(df)
 
-        df = df.set_index('ID')
+        if 'ID' in df.columns:
+            df = df.set_index('ID')
 
-        return cls(df)
+        return cls(df, labels, entries)
     
     @staticmethod
-    def _get_entries_from_data(test_data: pd.DataFrame):
+    def _get_entries_from_data(data: pd.DataFrame):
         
-        ids = test_data.loc[:, 'ID'].to_numpy()
-        classes = test_data.loc[:, 'Class'].to_numpy()
+        # if there is no ID column, it automatically takes the index column
+        # (useful for cross-validation step)
+
+        if 'ID' in data.columns:
+            ids = data.loc[:, 'ID'].to_numpy()
+        else:
+            ids = data.index.to_numpy()
+
+        classes = data.loc[:, 'Class'].to_numpy()
+        
+        if 'ID' in data.columns:
+            start_index = 2
+        else:
+            start_index = 1
+
         integs = [
-            test_data.iloc[i,2:].to_numpy() 
-            for i in range(0, len(test_data))
+            data.iloc[i,start_index:].to_numpy() 
+            for i in range(0, len(data))
         ]
 
-        labels = list(test_data.columns.values)[2:]
+        labels = list(data.columns.values)[start_index:]
         entries = [
-            Entry(id_, class_, integ)
+            Entry(id_, class_, integ) 
             for id_, class_ , integ in zip(ids, classes, integs)
         ]
 
@@ -103,13 +120,56 @@ class Data:
             self.control = class_labels['control']
             self.case = class_labels['case']
 
-            self.num_control = self.test_data['Class'].value_counts()[self.control]
-            self.num_case = self.test_data['Class'].value_counts()[self.case]
+            # check classes - if no instances exist, return zero
+            try:
+                self.num_control = self.test_data['Class'].value_counts()[self.control]
+            except KeyError:
+                self.num_control = 0
+
+            try:
+                self.num_case = self.test_data['Class'].value_counts()[self.case]
+            except KeyError:
+                self.num_case = 0
+
             self.num_classes = len(class_labels)
         
         if sort:
             self.entries = sorted(self.entries, key=lambda entry: entry.class_)
             self.test_data.sort_values(by=['Class', 'ID'], inplace=True)
+
+    def _set_classes_validation(self, control: str, case: str, class_labels: dict):
+        """
+        Method specifically for setting classes for training and test sets during validation process.
+        """
+        self.original_control = control
+        self.original_case = case
+
+        self.control = class_labels['control']
+        self.case = class_labels['case']
+
+        control_ids = []
+        case_ids = []
+
+        for entry in self.entries:
+            if entry.class_ == self.control:
+                control_ids.append(entry.id)
+            else:
+                case_ids.append(entry.id)
+
+        self.control_ids = control_ids
+        self.case_ids = case_ids
+
+        try:
+            self.num_control = self.test_data['Class'].value_counts()[self.control]
+        except KeyError:
+            self.num_control = 0
+
+        try:
+            self.num_case = self.test_data['Class'].value_counts()[self.case]
+        except KeyError:
+            self.num_case = 0
+
+        self.num_classes = len(class_labels)
 
     def _split_data(self, keep_id: bool=False):
         """
