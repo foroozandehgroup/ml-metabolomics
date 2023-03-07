@@ -2,6 +2,8 @@ from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 
+from Metabolomics_ML.base.entry import Entry
+
 @dataclass
 class Data:
     test_data: pd.DataFrame
@@ -214,11 +216,6 @@ class Data:
     def scaled_data(self):
         return getattr(self, "_scaled_data", None)
 
-@dataclass
-class Entry:
-    id: int
-    class_: str
-    integs: np.ndarray
 
 if __name__ == "__main__":
     pass
