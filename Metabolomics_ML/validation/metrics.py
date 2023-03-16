@@ -7,6 +7,10 @@ class Metrics:
     accuracy: float
     sensitivity: float
     specificity: float
+    rand_conf_matrix: np.ndarray=None
+    rand_accuracy: float=None
+    rand_sensitivity: float=None
+    rand_specificity: float=None
 
 
 def sensitivity_score(conf_matrix: np.ndarray):
