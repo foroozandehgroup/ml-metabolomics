@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import os
 import sys
+import re
 
 from Metabolomics_ML.pca.PCA_2class import PCAData
 from Metabolomics_ML.gui.gui import GUIData
@@ -57,7 +58,7 @@ class PCAPlot():
         fig.set_figheight(483.69684 / 72.27)
 
         axs[0, 0] = pcaplot.plot_vars(pcaplot.vars_array, figure=(fig, axs[0, 0]))
-        axs[1, 0] = pcaplot.plot_scores(pcaplot.scores_matrix, figure=(fig, axs[1, 0]))
+        axs[1, 0] = pcaplot.plot_scores(pcaplot.scores_matrix, figure=(fig, axs[1, 0]), colours=(pcaplot.guidata.control_colour, pcaplot.guidata.case_colour))
         axs[1, 1] = pcaplot.plot_loadings(pcaplot.quantiles_matrix, figure=(fig, axs[1, 1]))
 
         fig.tight_layout()
@@ -84,15 +85,23 @@ class PCAPlot():
     def p_values_tables(pcaplot: PCAData, top_loadings: bool=False):
 
         p_value_text = ""
+        
+        # regex for customising index labels
+        regex = r"(-?\d+(?:\.\d+)?).*?(-?\d+(?:\.\d+)?)"
 
         for index, row in zip(pcaplot.ttests.p_values.index, pcaplot.ttests.p_values.to_numpy()):
 
             if top_loadings:
                 if index in pcaplot._sig_loadings_labels:
-                    p_value_text += index + " & " + " & ".join(row) + "\\\\\n"
+                    
+                    vals = re.search(regex, index).groups()
+                    new_index = f"{vals[0]} -- {vals[1]}"
+                    p_value_text += new_index + " & " + " & ".join(row) + "\\\\\n"
 
             else:
-                p_value_text += index + " & " + " & ".join(row) + "\\\\\n"
+                vals = re.search(regex, index).groups()
+                new_index = f"{vals[0]} -- {vals[1]}"
+                p_value_text += new_index + " & " + " & ".join(row) + "\\\\\n"
         
         return p_value_text[:-3]
     
