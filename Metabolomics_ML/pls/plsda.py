@@ -2,14 +2,16 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.patches import Ellipse
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.metrics import r2_score, roc_curve, roc_auc_score
-from sklearn.model_selection import KFold, LeaveOneOut, cross_val_predict, train_test_split
+from sklearn.metrics import r2_score
+from sklearn.model_selection import KFold
 from dataclasses import dataclass
+from scipy import stats
 
 from Metabolomics_ML.base.data import Data
-from Metabolomics_ML.pca.PCA_2class import PCAData
+from Metabolomics_ML.pypls.pypls.cross_validation import CrossValidation
 
 @dataclass
 class PLSData(Data):
@@ -32,17 +34,16 @@ class PLSData(Data):
 
         return self.pls
     
-    def _optimise_components(self):
+    def _optimise_components(self, dq2: bool=False):
         
         if self.scaled_data is None:
             self._scale_data()
         
         # getting X and Y data
         x_data = self.scaled_test_data.iloc[:, 1:]
-        y_data = self.scaled_test_data.loc[:, 'Class']
-
-        cov_matrix = x_data.cov(numeric_only=False).values
-        tss_x = cov_matrix.trace()
+        y_data = np.array(self.scaled_test_data.loc[:, 'Class'])
+        y_data = y_data.reshape(-1, 1)
+        # y_data = self._static_scale(y_data)
 
         # initialise arrays for Q2 and R2
         q2_x, r2_x = [], []
@@ -55,17 +56,17 @@ class PLSData(Data):
         
         for nc in range(1, comps_up_to + 1):
             # 7-fold internal cross-validation - default used by SIMCA
-            kf = KFold(n_splits=10)
+            kf = KFold(n_splits=7, shuffle=True)
 
             pls = PLSRegression(n_components=nc)
             x_scores, y_scores = pls.fit_transform(self.scaled_data, y_data)
 
-            # calculation of R2X
+            # calculation of R2X (cumulative)
             recon_x, recon_y = pls.inverse_transform(x_scores, y_scores)
             r2_xi = r2_score(self.scaled_data, recon_x)
             r2_x.append(r2_xi)
             
-            # calculation of R2Y
+            # calculation of R2Y (cumulative)
             y_pred = pls.predict(self.scaled_data)
             r2_yi = r2_score(y_data, y_pred)
             r2_y.append(r2_yi)
@@ -77,7 +78,17 @@ class PLSData(Data):
 
             for train_index, test_index in kf.split(x_data, y_data):
                 x_train, x_test = x_data.iloc[train_index], x_data.iloc[test_index]
-                y_train, y_test = y_data.iloc[train_index], y_data.iloc[test_index]
+                y_train, y_test = y_data[train_index], y_data[test_index]
+
+                # check if all y values are the same (since scaling will give NaNs)
+                # if len(np.unique(y_test)) == 1:
+                #     y_test = np.zeros(y_test.shape)
+                # else:
+                #     y_test = self._static_scale(y_test)
+                
+                # apply independent scaling
+                x_train, x_test = self._static_scale(x_train), self._static_scale(x_test)
+                # y_train = self._static_scale(y_train)
 
                 pls_cv = PLSRegression(n_components=nc)
                 pls_cv.fit(x_train, y_train)
@@ -87,28 +98,32 @@ class PLSData(Data):
 
                 y_pred = pls_cv.predict(x_test)
 
+                if dq2:
+                    # dq2 calculation (Westerhuis)
+                    y_pred = np.clip(y_pred, -1 ,1)
+
                 mat_test_x[test_index, :] = x_recon_test
                 mat_test_y[test_index] = y_pred
-            
-            residual_x = x_data - mat_test_x
-            press_x = residual_x.cov(numeric_only=False).values.trace()
 
-            q2_xi = 1 - press_x/tss_x
+            q2_xi = r2_score(x_data, mat_test_x)
             q2_x.append(q2_xi)
 
             q2_yi = r2_score(y_data, mat_test_y)
         
             if self.n_components is None:
-                if nc == 1 or q2_yi - q2_y[-1] > q2_y[-1]:
+                if nc == 1 or q2_yi > q2_y[-1]:
                     q2_y.append(q2_yi)
                 else:
                     break
             else:
                 q2_y.append(q2_yi)
-        
-        print(q2_y)
 
-        return 3
+        self.q2_x = q2_x
+        self.r2_x = r2_x
+        self.q2_y = q2_y
+        self.r2_y = r2_y
+        
+        return max(2, len(self.q2_y))
     
     def get_loadings(self, n_components: int=None):
         
@@ -127,7 +142,7 @@ class PLSData(Data):
         
         if self.n_components is None:
             if n_components is None:
-                self._n_components = self._optimise_components()
+                self._n_components = 3 #self._optimise_components()
             else:
                 self._n_components = n_components
         
@@ -194,7 +209,62 @@ class PLSData(Data):
         ax.set_ylabel(f'T{second_comp}')
         ax.grid(linestyle='--')
         ax.legend(handles=legend_elements, loc='lower left', title='Classes', prop={'size': 8})
+
+        ellipse_data = []
+        if hotelling:
+            for i, colour in zip((self.control, self.case), colours):
+                ell_data = self._plot_hotelling(np_scores[np_scores[:, 0] == i][:, components[0]], np_scores[np_scores[:, 0] == i][:, components[1]], hotelling, (fig, ax), colour)
+                ellipse_data.append(ell_data)
         
+        # rescaling of plot for ellipses
+        x_extremes, y_extremes = [], []
+        x_max, x_min, y_max, y_min = np.max(np_scores[:, components[0]]), np.min(np_scores[:, components[0]]), np.max(np_scores[:, components[1]]), np.min(np_scores[:, components[1]])
+        x_extremes.extend([x_max, x_min])
+        y_extremes.extend([y_max, y_min])
+        
+        for data in ellipse_data:
+            centre, width, height, angle = data
+            angle *= np.pi/180
+
+            R = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+            half_width = width / 2
+            half_height = height / 2
+            vertices_rel = np.array([[-half_width, -half_height], [half_width, -half_height], [half_width, half_height], [-half_width, half_height]])
+            vertices_rot = np.dot(R, vertices_rel.T).T
+            vertices_abs = np.empty_like(vertices_rot)
+
+            for i in range(4):
+                vertices_abs[i, :] = vertices_rot[i, :] + centre.T
+
+            x_extremes.extend([np.min(vertices_abs[:, 0]), np.max(vertices_abs[:, 0])])
+            y_extremes.extend([np.min(vertices_abs[:, 1]), np.max(vertices_abs[:, 1])])
+
+        ax.set_xlim(min(x_extremes)*1.05, max(x_extremes)*1.05)
+        ax.set_ylim(min(y_extremes)*1.05, max(y_extremes)*1.05)
+
+    def _plot_hotelling(self, first_scores: np.ndarray, second_scores: np.ndarray, q: float, figure: tuple, colour: str):
+        
+        fig, ax = figure
+        
+        first_mean, second_mean = np.mean(first_scores), np.mean(second_scores)
+        scores = np.column_stack((first_scores, second_scores))
+
+        cov = np.cov(scores.astype(float), rowvar=False)
+
+        chi2_val = stats.chi2.ppf(q, 2)
+
+        eig_vals, eig_vecs = np.linalg.eigh(cov)
+        eig_order = eig_vals.argsort()[::-1]
+        eig_vals, eig_vecs = eig_vals[eig_order], eig_vecs[:, eig_order]
+
+        angle = np.degrees(np.arctan2(*eig_vecs[:, 0][::-1]))
+        width, height = 2 * np.sqrt(chi2_val) * np.sqrt(eig_vals)
+
+        ellipse = Ellipse(xy=(first_mean, second_mean), width=width, height=height, angle=angle, alpha=0.2, color=colour)
+        ax.add_artist(ellipse)
+
+        return (np.array([[first_mean], [second_mean]]), width, height, angle)
+
     @property
     def n_components(self):
         return getattr(self, "_n_components", None)
@@ -205,11 +275,24 @@ class PLSData(Data):
 
 if __name__ == "__main__":
     test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
+    # test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\R Scripts\OPLS-DA\test_data_fake.csv")
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
-    scores_matrix = test_data.get_scores(n_components=4)
-    test_data.plot_scores(scores_matrix, colours=('blue', 'green'), components=(1, 2))
-    
-    test_data._optimise_components()
+    scores_matrix = test_data.get_scores(n_components=3)
+    test_data.plot_scores(scores_matrix, colours=('blue', 'green'), components=(1, 2), hotelling=0.95)
+
+    # test_data._optimise_components()
+
+    coef = test_data.pls.coef_
+    x_scores = test_data.pls.x_scores_
+    y_scores = test_data.pls.y_scores_
+    x_rot = test_data.pls.x_rotations_
+    y_rot = test_data.pls.y_rotations_
+    x_load = test_data.pls.x_loadings_
+    y_load = test_data.pls.y_loadings_
+    x_weight = test_data.pls.x_weights_
+    y_weight = test_data.pls.y_weights_
+    intercept = test_data.pls.intercept_
+
 
     plt.show()
 
