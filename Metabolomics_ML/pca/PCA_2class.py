@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.patches import Ellipse
 from sklearn.decomposition import PCA
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, LeaveOneOut
@@ -38,91 +39,97 @@ class PCAData(Data):
 
     def _optimise_pcs(self):
 
-            if self.scaled_data is None:
-                self._scale_data()
+        if self.scaled_data is None:
+            self._scale_data()
 
-            scaled_data_pd = self.scaled_test_data.iloc[:, 1:]
+        scaled_data_pd = self.scaled_test_data.iloc[:, 1:]
 
-            # get covariance matrix of the scaled data
-            cov_matrix = scaled_data_pd.cov().values
+        # get covariance matrix of the scaled data
+        cov_matrix = scaled_data_pd.cov().values
 
-            # get trace of covariance matrix i.e. TSS (total sum of squares)
-            tss = cov_matrix.trace()
+        # get trace of covariance matrix i.e. TSS (total sum of squares)
+        tss = cov_matrix.trace()
+
+        # initialise arrays to store q2 and r2 values
+        q2, r2 = [], []
+        
+        # iterate through increasing numbers of PCs - if n_components attribute exists
+        # (e.g. initialised in get_loadings method), then all of these components show up in
+        # final q2 array
+
+        if self.n_components is None:
+            pcs_up_to = len(self.test_data)
+        else:
+            pcs_up_to = self.n_components
+
+        for pc in range(1, pcs_up_to + 1):
+            # initialise folds - 7-fold used in this case
+            kf = KFold(n_splits=7)
+
+            # fit PCA model on scaled data
+            pca = PCA(n_components=pc)
+            scores = pca.fit_transform(scaled_data_pd)
             
-            # initialise arrays to store q2 and r2 values
-            q2, r2 = [], []
-            
-            # iterate through increasing numbers of PCs - if n_components attribute exists
-            # (e.g. initialised in get_loadings method), then all of these components show up in
-            # final q2 array
+            # reconstruct data matrix from scores
+            recon = pca.inverse_transform(scores)
 
+            # use in-built r2 function between initial scaled data and the reconstructed data for i PCs
+            r2_i = r2_score(scaled_data_pd, recon)
+
+            # add r2 value to array of r2 values
+            r2.append(r2_i)
+            
+            # initialise a matrix for the reconstructed matrix for q2 calculation
+            mat_test = np.zeros(shape=scaled_data_pd.shape)
+
+            # get indices of columns in train and test sets according to cross-valdiation method
+            for train_index, test_index in kf.split(scaled_data_pd):
+
+                # split data into train and test sets for each fold
+                x_train, x_test = scaled_data_pd.iloc[train_index], scaled_data_pd.iloc[test_index]
+
+                # scaling each fold individually
+                x_train, x_test = self._static_scale(x_train), self._static_scale(x_test)
+
+                # fit PCA model on training data
+                pca_cv = PCA(n_components=pc)
+                pca_cv.fit(x_train)
+
+                # calculate scores of test set and reconstruct data
+                scores_test = pca_cv.transform(x_test)
+                recon_test = pca_cv.inverse_transform(scores_test)
+
+                # insert reconstructed data into columns of final reconstructed matrix
+                mat_test[test_index, :] = recon_test
+            
+            # get residual matrix for this PC
+            res = scaled_data_pd - mat_test
+            
+            # calculate PRESS (prediction error sum of squares) as the trace of the covariance matrix of residuals
+            press = res.cov().values.trace()
+
+            # q2 for ith PC calculated as 1 - PRESS/TSS
+            q2_i = 1 - press/tss
+            
             if self.n_components is None:
-                pcs_up_to = len(self.test_data)
-            else:
-                pcs_up_to = self.n_components
-
-            for pc in range(1, pcs_up_to + 1):
-                # initialise folds - 7-fold used in this case
-                kf = KFold(n_splits=7)
-
-                # fit PCA model on scaled data
-                pca = PCA(n_components=pc)
-                scores = pca.fit_transform(scaled_data_pd)
-                
-                # reconstruct data matrix from scores
-                recon = pca.inverse_transform(scores)
-
-                # use in-built r2 function between initial scaled data and the reconstructed data for i PCs
-                r2_i = r2_score(scaled_data_pd, recon)
-
-                # add r2 value to array of r2 values
-                r2.append(r2_i)
-                
-                # initialise a matrix for the reconstructed matrix for q2 calculation
-                mat_test = np.zeros(shape=scaled_data_pd.shape)
-
-                # get indices of columns in train and test sets according to cross-valdiation method
-                for train_index, test_index in kf.split(scaled_data_pd):
-
-                    # split data into train and test sets for each fold
-                    x_train, x_test = scaled_data_pd.iloc[train_index], scaled_data_pd.iloc[test_index]
-
-                    # fit PCA model on training data
-                    pca_cv = PCA(n_components=pc)
-                    pca_cv.fit(x_train)
-
-                    # calculate scores of test set and reconstruct data
-                    scores_test = pca_cv.transform(x_test)
-                    recon_test = pca_cv.inverse_transform(scores_test)
-
-                    # insert reconstructed data into columns of final reconstructed matrix
-                    mat_test[test_index, :] = recon_test
-                
-                # get residual matrix for this PC
-                res = scaled_data_pd - mat_test
-                
-                # calculate PRESS (prediction error sum of squares) as the trace of the covariance matrix of residuals
-                press = res.cov().values.trace()
-
-                # q2 for ith PC calculated as 1 - PRESS/TSS
-                q2_i = 1 - press/tss
-                
-                if self.n_components is None:
-                    if pc == 1 or q2_i - q2[-1] > q2[-1]:
-                        # add q2 for current PC to array of q2 values if q2 is higher than the previous q2
-                        q2.append(q2_i)
-                    else:
-                        break
-                else:
+                if pc == 1 or q2_i - q2[-1] > q2[-1]:
+                    # add q2 for current PC to array of q2 values if q2 is higher than the previous q2
                     q2.append(q2_i)
+                else:
+                    break
+            else:
+                q2.append(q2_i)
 
-            q2 = np.array(q2)
+        q2 = np.array(q2)
+    
+        # find differences in q2 i.e. q2 for the ith component as oppposed to cumulative q2
+        self.q2_array = np.insert(q2[1:] - q2[0:-1], 0, q2[0])
 
-            # find differences in q2 i.e. q2 for the ith component as oppposed to cumulative q2
-            self.q2_array = np.insert(q2[1:] - q2[0:-1], 0, q2[0])
+        # initialise r2 array attribute
+        self.r2_array = np.array(r2)
 
-            # returns the optimal number of PCs (minimum 2 PCs to allow plotting)
-            return max(2, len(self.q2_array))
+        # returns the optimal number of PCs (minimum 2 PCs to allow plotting)
+        return max(2, len(self.q2_array))
 
     def get_loadings(self, n_components=None):
         """
@@ -405,11 +412,43 @@ class PCAData(Data):
         for handle in legend_elements:
             handle.set_linestyle("")
 
-        self._plot_2d_scores(np_scores=np_scores, colors=colour_list, legend_elements=legend_elements, id_labels=id_labels, pcs=pcs, figure=figure, hotelling=hotelling, fontsize=fontsize)    
+        fig, ax = self._plot_2d_scores(np_scores=np_scores, colours=colour_list, legend_elements=legend_elements, id_labels=id_labels, pcs=pcs, figure=figure, hotelling=hotelling, fontsize=fontsize)    
         # elif self.n_components >= 3:
         #     self._plot_3d_scores(np_scores=np_scores, colors=colors, legend_elements=legend_elements, id_labels=id_labels, figure=figure, fontsize=fontsize)
 
-    def _plot_2d_scores(self, np_scores, colors, legend_elements, id_labels, pcs: tuple=(1, 2), hotelling: float=None, figure: tuple=None, fontsize: int=5):
+        ellipse_data = []
+        if hotelling:
+            for i, colour in zip((self.control, self.case), colours):
+                ell_data = self._plot_hotelling(np_scores[np_scores[:, 0] == i][:, pcs[0]], np_scores[np_scores[:, 0] == i][:, pcs[1]], hotelling, (fig, ax), colour)
+                ellipse_data.append(ell_data)
+
+        # rescaling of plot for ellipses
+        x_extremes, y_extremes = [], []
+        x_max, x_min, y_max, y_min = np.max(np_scores[:, pcs[0]]), np.min(np_scores[:, pcs[0]]), np.max(np_scores[:, pcs[1]]), np.min(np_scores[:, pcs[1]])
+        x_extremes.extend([x_max, x_min])
+        y_extremes.extend([y_max, y_min])
+        
+        for data in ellipse_data:
+            centre, width, height, angle = data
+            angle *= np.pi/180
+
+            R = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+            half_width = width / 2
+            half_height = height / 2
+            vertices_rel = np.array([[-half_width, -half_height], [half_width, -half_height], [half_width, half_height], [-half_width, half_height]])
+            vertices_rot = np.dot(R, vertices_rel.T).T
+            vertices_abs = np.empty_like(vertices_rot)
+            
+            for i in range(4):
+                vertices_abs[i, :] = vertices_rot[i, :] + centre.T
+
+            x_extremes.extend([np.min(vertices_abs[:, 0]), np.max(vertices_abs[:, 0])])
+            y_extremes.extend([np.min(vertices_abs[:, 1]), np.max(vertices_abs[:, 1])])
+        
+        ax.set_xlim(min(x_extremes)*1.05, max(x_extremes)*1.05)
+        ax.set_ylim(min(y_extremes)*1.05, max(y_extremes)*1.05)
+
+    def _plot_2d_scores(self, np_scores, colours, legend_elements, id_labels, pcs: tuple=(1, 2), hotelling: float=None, figure: tuple=None, fontsize: int=5):
         if figure is not None:
             fig, ax = figure
         else:  
@@ -417,13 +456,13 @@ class PCAData(Data):
 
         first_pc, second_pc = pcs
 
-        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colors, s=25, edgecolors='black', alpha=0.7)
+        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colours, s=25, edgecolors='black', alpha=0.7)
         for i, id in enumerate(id_labels):
             ax.annotate(id, (np_scores[i, first_pc], np_scores[i, second_pc]), fontsize=fontsize)
+
         self._add_labels_scores(ax, legend_elements, pcs=pcs)
 
-        if hotelling:
-            self._plot_hotelling(np_scores, q=hotelling, figure=(fig, ax))
+        return fig, ax
       
     def _plot_3d_scores(self, np_scores, colors, legend_elements, id_labels, figure: tuple=None, fontsize: int=5):
         if figure is not None:
@@ -456,12 +495,28 @@ class PCAData(Data):
         ax.set_ylabel('PC2')
         ax.grid(linestyle='--')
     
-    @staticmethod
-    def _plot_hotelling(scores: np.ndarray, q: float, figure: tuple):
+    def _plot_hotelling(self, first_scores: np.ndarray, second_scores: np.ndarray, q: float, figure: tuple, colour: str):
+        
         fig, ax = figure
+        
+        first_mean, second_mean = np.mean(first_scores), np.mean(second_scores)
+        scores = np.column_stack((first_scores, second_scores))
 
-        pass
+        cov = np.cov(scores.astype(float), rowvar=False)
 
+        chi2_val = stats.chi2.ppf(q, 2)
+
+        eig_vals, eig_vecs = np.linalg.eigh(cov)
+        eig_order = eig_vals.argsort()[::-1]
+        eig_vals, eig_vecs = eig_vals[eig_order], eig_vecs[:, eig_order]
+
+        angle = np.degrees(np.arctan2(*eig_vecs[:, 0][::-1]))
+        width, height = 2 * np.sqrt(chi2_val) * np.sqrt(eig_vals)
+
+        ellipse = Ellipse(xy=(first_mean, second_mean), width=width, height=height, angle=angle, alpha=0.2, color=colour)
+        ax.add_artist(ellipse)
+
+        return (np.array([[first_mean], [second_mean]]), width, height, angle)
 
     def plot_vars(self, vars_array: np.ndarray, threshold: float=None, cumulative: bool=False, figure: tuple=None):
         rows = [f'PC{i}' for i in range(1, self.n_components+1)]
@@ -561,15 +616,15 @@ if __name__ == "__main__":
     # plots don't work without class_labels dict - cannot append strings into numpy array
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
 
-    loadings_matrix = test_data.get_loadings()
+    loadings_matrix = test_data.get_loadings(n_components=3)
     scores_matrix = test_data.get_scores()
     test_data.get_vars(ratio=True)
     test_data.get_quantiles(test_data.loadings_matrix, q=0.95)
     test_data.rank_loadings()
-    test_data.run_ttests()
+    # test_data.run_ttests()
 
-    # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2))
+    test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2), hotelling=0.95, fontsize=10)
 
-    fig_list = test_data.plot_ttests(test_data.ttests)
+    # fig_list = test_data.plot_ttests(test_data.ttests)
 
     plt.show()
