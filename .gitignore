@@ -7,3 +7,6 @@ __pycache__/
 *.fls
 .venv
 *.egg-info/
+pypls/
+tests/
+.idea
