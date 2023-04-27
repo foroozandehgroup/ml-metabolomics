@@ -1,3 +1,4 @@
+from typing import Union
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
@@ -8,7 +9,7 @@ from Metabolomics_ML.base.entry import Entry
 class Data:
     test_data: pd.DataFrame
     labels: list
-    entries: list
+    entries: list[Entry]
 
     @classmethod
     def new_from_csv(cls, fname: str):
@@ -32,17 +33,32 @@ class Data:
         return cls(test_data, labels, entries)
 
     @classmethod
-    def new_from_df(cls, df: pd.DataFrame):
+    def new_from_df(cls, df: pd.DataFrame, _from_perm_data: bool=False):
+        """
+        Creates a new Data class from a Pandas DataFrame.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame of test data.
         
-        labels, entries = cls._get_entries_from_data(df)
+        _from_perm_data: bool=False
+            Indicates whether the DataFrame has a column of random class labels for the
+            permutation test. Set to False by default (not for user input).
+        """
+        
+        labels, entries = cls._get_entries_from_data(df, _from_perm_data=_from_perm_data)
 
         if 'ID' in df.columns:
             df = df.set_index('ID')
+        
+        if _from_perm_data:
+            df = df.drop(columns='Random', inplace=False)
 
         return cls(df, labels, entries)
     
     @staticmethod
-    def _get_entries_from_data(data: pd.DataFrame):
+    def _get_entries_from_data(data: pd.DataFrame, _from_perm_data: bool=False):
         
         # if there is no ID column, it automatically takes the index column
         # (useful for cross-validation step)
@@ -58,6 +74,10 @@ class Data:
             start_index = 2
         else:
             start_index = 1
+        
+        # add one to start index if initial dataframe includes random labels
+        if _from_perm_data:
+            start_index += 1
 
         integs = [
             data.iloc[i,start_index:].to_numpy() 
@@ -191,7 +211,7 @@ class Data:
 
         return x_data, y_data
     
-    def _scale_data(self):
+    def _scale_data(self, method: str='standard'):
         """
         Scales data: currently only standard scaling supported (zero mean and unit variance).
         Initialises scaled_test_data attribute, which presents scaled data as a pandas 
@@ -202,19 +222,46 @@ class Data:
 
             # Standard scaling by default -- do not use scikit-learn StandardScaler as this uses unbiased
             # definition of standard deviation, as opposed to numpy/pandas which used the biased defintion.
-            scaled_data = pd.DataFrame(x_data, columns=self.labels, index=[entry.id for entry in self.entries]) 
-            scaled_data = (scaled_data - scaled_data.mean())/scaled_data.std()
-            self._scaled_data = scaled_data.to_numpy()
+            scaled_data = pd.DataFrame(x_data, columns=self.labels, index=[entry.id for entry in self.entries])
 
-            scaled_data.insert(0, column='Class', value=y_data)
+            scaled_data = self._static_scale(data=scaled_data, method=method)
+            scaled_y_data = self._static_scale(data=y_data, method=method)
+            
+            self._scaled_data = scaled_data.to_numpy()
+            self._scaled_y_data = scaled_y_data
+
+            scaled_data.insert(0, column='Class', value=scaled_y_data)
             self.scaled_test_data = scaled_data
 
         return self.scaled_data
         ### allow option for scaling method
 
+    @staticmethod
+    def _static_scale(data: Union[pd.DataFrame, np.ndarray], method: str='standard'):
+        """
+        Method for scaling indiviudal dataframes independently.
+        """
+        if method == 'standard':
+            scaled_data = (data - data.mean())/data.std()
+        elif method == 'pareto':
+            scaled_data = (data - data.mean())/np.sqrt(data.std())
+        
+        return scaled_data
+
     @property
     def scaled_data(self):
         return getattr(self, "_scaled_data", None)
+    
+    @property
+    def scaling_method(self):
+        return getattr(self, "_scaling_method", None)
+    
+    @property
+    def rand_scaled_data(self) -> pd.DataFrame:
+        """
+        Scaled data with random class assignment for permutation test.
+        """
+        return getattr(self, "_rand_scaled_data", None)
 
 
 if __name__ == "__main__":
