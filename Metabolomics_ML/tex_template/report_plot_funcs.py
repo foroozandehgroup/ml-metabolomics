@@ -58,7 +58,7 @@ class PCAPlot():
         fig.set_figheight(483.69684 / 72.27)
 
         axs[0, 0] = pcaplot.plot_vars(pcaplot.vars_array, figure=(fig, axs[0, 0]))
-        axs[1, 0] = pcaplot.plot_scores(pcaplot.scores_matrix, figure=(fig, axs[1, 0]), colours=(pcaplot.guidata.control_colour, pcaplot.guidata.case_colour))
+        axs[1, 0] = pcaplot.plot_scores(pcaplot.scores_matrix, figure=(fig, axs[1, 0]), colours=(pcaplot.guidata.control_colour, pcaplot.guidata.case_colour), hotelling=pcaplot.guidata.q)
         axs[1, 1] = pcaplot.plot_loadings(pcaplot.quantiles_matrix, figure=(fig, axs[1, 1]))
 
         fig.tight_layout()
@@ -111,7 +111,7 @@ class PCAPlot():
         Plots bar charts for the p-values of all significant loadings for the top PCs.
         """
         
-        ttest_figs = pcaplot.plot_ttests(pcaplot.ttests)
+        ttest_figs = pcaplot.plot_ttests(pcaplot.ttests, colours=(pcaplot.guidata.control_colour, pcaplot.guidata.case_colour))
 
         for i, (fig, fig_pc) in enumerate(ttest_figs):
             fig.set_figwidth(483.69684 / 72.27)
