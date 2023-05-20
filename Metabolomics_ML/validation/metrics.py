@@ -11,6 +11,7 @@ class Metrics:
     rand_accuracy: float=None
     rand_sensitivity: float=None
     rand_specificity: float=None
+    mda: dict=None
 
 
 def sensitivity_score(conf_matrix: np.ndarray):
