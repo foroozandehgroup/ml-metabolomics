@@ -201,8 +201,9 @@ class PLSData(Data):
         first_comp, second_comp = components
 
         ax.scatter(np_scores[:, first_comp], np_scores[:, second_comp], c=colour_list, edgecolors='black', alpha=0.7)
-        for i, id in enumerate(id_labels):
-            ax.annotate(id, (np_scores[i, first_comp], np_scores[i, second_comp]), fontsize=fontsize)
+        if fontsize:
+            for i, id in enumerate(id_labels):
+                ax.annotate(id, (np_scores[i, first_comp], np_scores[i, second_comp]), fontsize=fontsize)
 
         ax.set_title('Scores Plot (PLS-DA)')
         ax.set_xlabel(f'T{first_comp}')
@@ -265,6 +266,28 @@ class PLSData(Data):
 
         return (np.array([[first_mean], [second_mean]]), width, height, angle)
 
+    def vip_scores(self, x_weights: np.ndarray, x_scores: np.ndarray, y_weights: np.ndarray):
+        """
+        PLS algorithm for VIP as in Galindo-Prieto et al. Returns a list of tuples of the 
+        form (label, vip_score).
+        """
+
+        n_var = x_scores.shape[0]
+        n_features = x_weights.shape[0]
+        n_comp = x_scores.shape[1]
+
+        ssy = np.zeros(n_comp)
+
+        squared_y = np.square(np.multiply(x_scores, y_weights))
+
+        for i in range(n_comp):
+            ssy[i] = np.sum(squared_y[:, i])
+
+        vip = np.sqrt(x_weights.shape[0] * np.sum((x_weights ** 2) * np.tile(ssy, (x_weights.shape[0], 1)), axis=1) / np.sum(ssy))
+
+        return [(label, score) for label, score in zip(self.labels, vip)]
+    
+    
     @property
     def n_components(self):
         return getattr(self, "_n_components", None)
@@ -275,8 +298,9 @@ class PLSData(Data):
 
 if __name__ == "__main__":
     test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
-    # test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\R Scripts\OPLS-DA\test_data_fake.csv")
+    test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\Metabolomics_ML\thesis\datasets\test_data_shuffled.csv")
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
+    
     scores_matrix = test_data.get_scores(n_components=3)
     test_data.plot_scores(scores_matrix, colours=('blue', 'green'), components=(1, 2), hotelling=0.95)
 
@@ -293,7 +317,63 @@ if __name__ == "__main__":
     y_weight = test_data.pls.y_weights_
     intercept = test_data.pls.intercept_
 
+    vipvn = test_data.vip_scores(x_weight, x_scores, y_weight)
+    
+    # x = test_data.scaled_data
+    # y = test_data.scaled_test_data.iloc[:, 0].to_numpy()
+    # y = y.reshape(-1, 1)
+    # matrix = x @ x.T @ y @ y.T
+    # print(matrix.shape)
 
-    plt.show()
+    # eigs = np.linalg.eigh(matrix.astype(float))
+    # eigv = eigs[0].reshape(-1, 1)
+    # print(eigv)
+    # print(x_scores[:, 0])
+
+    y = test_data.scaled_test_data.loc[:, 'Class'].to_numpy()
+    y = y.reshape(-1, 1)
+    y = test_data._static_scale(y)
+    x = test_data.scaled_data
+
+    u = y
+    w = x.T @ u / (u.T @ u)
+    w /= np.linalg.norm(w)
+    t = x @ w
+    c = y.T @ t / (t.T @ t)
+    c /= np.linalg.norm(c)
+    c = c[0][0]
+    u = y.T * c
+
+    # x -= t @ p.T
+    # y -= u 
+
+    # p = x.T @ t / (t.T @ t)
+    # q = y @ u / (u.T @ u)
+
+    # gv = x.T @ y @ y.T @ x @ w * 0.17411361259353422 / 9824.407775555617
+
+    preds = x @ x_load @ y_load.T
+    preds_ = [-1 if num < 0 else 1 for num in preds]
+    tot = []
+    for true, pred in zip(y, preds_):
+        if (true < 0 and pred < 0) or (true > 0 and pred > 0):
+            tot.append(0)
+        else:
+            tot.append(1)
+
+
+    # print(x_load @ y_load.T)
+    # print(x @ x_load - x_scores)
+    # print(x_scores)
+
+    print(x_scores)
+    print(y_weight)
+
+    a = np.array([[1, 2, 3], [2, 3, 4]])
+    b = np.array([3, 3, 3])
+
+    print(np.multiply(a, b))
+
+    # plt.show()
 
 
