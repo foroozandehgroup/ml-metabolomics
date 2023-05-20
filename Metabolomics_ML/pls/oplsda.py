@@ -30,7 +30,7 @@ class OPLSData(Data):
                 self._scale_data()
             
             self._opls = OPLS(n_components=n_components)
-            self._opls.fit(self.scaled_data, self._scaled_y_data)
+            self._opls.fit(self.scaled_data, self.scaled_test_data.loc[:, 'Class'])
 
         return self.opls
     
@@ -191,14 +191,15 @@ class OPLSData(Data):
         first_comp, second_comp = components
 
         ax.scatter(np_scores[:, first_comp], np_scores_ortho[:, second_comp], c=colour_list, edgecolors='black', alpha=0.7)
-        for i, id in enumerate(id_labels):
-            ax.annotate(id, (np_scores[i, first_comp], np_scores_ortho[i, second_comp]), fontsize=fontsize)
+        if fontsize:
+            for i, id in enumerate(id_labels):
+                ax.annotate(id, (np_scores[i, first_comp], np_scores_ortho[i, second_comp]), fontsize=fontsize)
 
         ax.set_title(f"Scores Plot (OPLS-DA): n components = {first_comp}") 
         ax.set_xlabel(f"T{first_comp}")
         ax.set_ylabel(f"O{second_comp}")
         ax.grid(linestyle="--")
-        ax.legend(handles=legend_elements, loc="lower left", title="Classes", prop={"size": 8})
+        ax.legend(handles=legend_elements, loc="lower left", prop={"size": 8}, title_fontsize=8, title="Classes")
 
         ellipse_data = []
         if hotelling:
@@ -257,6 +258,8 @@ class OPLSData(Data):
         return (np.array([[first_mean], [second_mean]]), width, height, angle)
 
 
+
+
     @property
     def n_components(self):
         return getattr(self, "_n_components", None)
@@ -269,13 +272,18 @@ class OPLSData(Data):
 if __name__ == "__main__":
     test_data = OPLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
-    t_matrix, t_ortho_matrix = test_data.get_scores(n_components=10)
-    test_data.plot_scores(t_matrix, t_ortho_matrix, fontsize=10, colours=('blue', 'red'), components=(7, 1), hotelling=0.95)
+    t_matrix, t_ortho_matrix = test_data.get_scores(n_components=3)
+    test_data.plot_scores(t_matrix, t_ortho_matrix, fontsize=10, colours=('blue', 'red'), components=(3, 3), hotelling=0.95)
 
-    print(test_data.opls.C.shape)
+    w_o = test_data.opls.W_ortho
+    p_o = test_data.opls.P_ortho
 
+    x = w_o @ np.linalg.inv(p_o.T @ w_o)
 
-    plt.show()
+    x_corr = test_data.opls.correct(test_data.scaled_data)
+    print(x)
+
+    # plt.show()
 
     # print(test_data.r2_x)
 
