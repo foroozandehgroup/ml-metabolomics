@@ -14,15 +14,20 @@ class Window(tk.Tk):
     
     # Calls all methods for generating widgets
     def create_widgets(self):
+        # dummy variable to dictate grid positions
+        self.i = 0
+
         self.user_info()
         self.data()
+        self.method()
         self.plots()
         self.save_dir()
         self.enter_button()
 
     def user_info(self):
         self.user_info_frame = tk.LabelFrame(self.frame, text="User Information")
-        self.user_info_frame.grid(row=0, column=0, sticky="news", padx=20, pady=20)
+        self.user_info_frame.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
 
         self.name_label = tk.Label(self.user_info_frame, text="Enter your name: ")
         self.name_label.grid(row=0, column=0, sticky="news", padx=(10, 0), pady=10)
@@ -31,7 +36,8 @@ class Window(tk.Tk):
 
     def data(self):
         self.data_frame = tk.LabelFrame(self.frame, text="Data Entry")
-        self.data_frame.grid(row=1, column=0, sticky="news", padx=20, pady=20)
+        self.data_frame.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
 
         # Filepath entry
         self.filepath_label = tk.Label(self.data_frame, text="Data Filepath")
@@ -53,6 +59,16 @@ class Window(tk.Tk):
         self.sig_level_entry = tk.Spinbox(self.data_frame, from_=0, to=1, increment=0.01)
         self.sig_level_entry.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=10)
     
+    def method(self):
+        self.method_frame = tk.LabelFrame(self.frame, text="Choose ML Method")
+        self.method_frame.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
+
+        self.method_label = tk.Label(self.method_frame, text="Method: ")
+        self.method_label.grid(row=0, column=0, sticky="news", padx=(10, 0), pady=10)
+        self.method_entry = ttk.Combobox(self.method_frame, state="readonly", values=["PCA", "PLS-DA", "OPLS-DA", "SVM", "RF"])
+        self.method_entry.grid(row=0, column=1, sticky="news", padx=(10, 0), pady=10)
+    
     def get_filepath(self):
         # Delete current text in Entry box
         self.filepath_entry.delete(0, tk.END)
@@ -65,7 +81,8 @@ class Window(tk.Tk):
 
     def plots(self):
         self.plots_frame = tk.LabelFrame(self.frame, text="Plotting")
-        self.plots_frame.grid(row=2, column=0, sticky="news", padx=20, pady=20)
+        self.plots_frame.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
 
         # Control/case checks
         self.control_label = tk.Label(self.plots_frame, text="Enter control: ")
@@ -81,16 +98,17 @@ class Window(tk.Tk):
         # Choosing plot colours
         self.control_colour_label = tk.Label(self.plots_frame, text="Control plot colour: ")
         self.control_colour_label.grid(row=1, column=0, sticky="w", padx=(10, 0), pady=10)
-        self.control_colour_entry = ttk.Combobox(self.plots_frame, state="readonly", values=["Green", "Blue", "Red", "Yellow"])
+        self.control_colour_entry = ttk.Combobox(self.plots_frame, state="readonly", values=["Green", "Blue", "Red", "Yellow", "Purple", "Orange", "Cyan", "Magenta", "Black"])
         self.control_colour_entry.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=10)
         self.case_colour_label = tk.Label(self.plots_frame, text="Case plot colour: ")
         self.case_colour_label.grid(row=1, column=2, sticky="w", padx=(10, 0), pady=10)
-        self.case_colour_entry = ttk.Combobox(self.plots_frame, state="readonly", values=["Green", "Blue", "Red", "Yellow"])
+        self.case_colour_entry = ttk.Combobox(self.plots_frame, state="readonly", values=["Green", "Blue", "Red", "Yellow", "Purple", "Orange", "Cyan", "Magenta", "Black"])
         self.case_colour_entry.grid(row=1, column=3, sticky="w", padx=(10, 0), pady=10)
 
     def save_dir(self):
         self.save_dir_frame = tk.LabelFrame(self.frame, text="Save")
-        self.save_dir_frame.grid(row=3, column=0, sticky="news", padx=20, pady=20)
+        self.save_dir_frame.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
 
         # Save directory entry
         self.save_dir_label = tk.Label(self.save_dir_frame, text="Save Here")
@@ -112,7 +130,8 @@ class Window(tk.Tk):
 
     def enter_button(self):
         self.enter = tk.Button(self.frame, text="Enter data", command=self.enter_data)
-        self.enter.grid(row=4, column=0, sticky="news", padx=20, pady=20)
+        self.enter.grid(row=self.i, column=0, sticky="news", padx=20, pady=20)
+        self.i += 1
 
     def enter_data(self):
         self.name = self.name_entry.get()
