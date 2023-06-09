@@ -7,27 +7,33 @@ from sklearn.utils import resample
 from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.inspection import permutation_importance
 from sklearn.cross_decomposition import PLSRegression
-from typing import Union
+from typing import Union, Literal
 import random
 
 from Metabolomics_ML.pls.oplsda import OPLSData
 from Metabolomics_ML.pls.plsda import PLSData
 from Metabolomics_ML.validation.metrics import Metrics, sensitivity_score, specificity_score
+from Metabolomics_ML.validation.bootstrap import Bootstrap
 
 class CrossValidation:
     
-    def __init__(self, estimator: Union[OPLSData, PLSData], folds: int=10, repetitions: int=100, metrics: list[Metrics]=None):
+    def __init__(self, estimator: Union[OPLSData, PLSData], folds: int=10, repetitions: int=100, metrics: list[Metrics]=None, method: Literal["kfold", "montecarlo", "bootstrap"]="kfold", fix_components: int=None,
+                 mc_params: dict={'splits': 10, 'test_size': 0.1}, bootstraps: int=10):
         # set random seed for reproducibility
         # np.random.seed(0)
 
         # initialises the scaled_test_data attribute for the estimator
         if not hasattr(estimator, "_scaled_data"):
-            estimator._scale_data()
+            estimator._scale_data(estimator.scaling)
         
         self.estimator = estimator
         self.folds = folds
         self.repetitions = repetitions
         self.metrics = metrics
+        self.method = method
+        self.fix_components = fix_components
+        self.mc_params = mc_params
+        self.bootstraps = bootstraps
     
     @staticmethod
     def equalise_classes(estimator: Union[OPLSData, PLSData]):
@@ -60,22 +66,29 @@ class CrossValidation:
             return equal_data
 
         # return untouched scaled test data in the case that class sizes are already equal
-        return estimator.scaled_test_data
+        return estimator.rand_scaled_data
 
     @staticmethod
     def shuffle(data: pd.DataFrame):
         return data.sample(frac=1)
 
-    def external_cv(self, data: pd.DataFrame, perm_test: bool, mda: bool):
+    def external_cv(self, data: pd.DataFrame, perm_test: bool, mda: bool, vip: bool, method: str):
         """
         Optional perm_test input - carries out permutation test. Adds results of each permutation test
         to Metrics object.
         """
-        kf = KFold(n_splits=self.folds, shuffle=False)
+        if method == "kfold":
+            val = KFold(n_splits=self.folds, shuffle=False)
+        elif method == "montecarlo":
+            val = ShuffleSplit(n_splits=self.mc_params['splits'], test_size=self.mc_params['test_size'])
+        elif method == "bootstrap":
+            val = Bootstrap(n_splits=self.bootstraps)
+        else:
+            raise ValueError("Validation method must be one of \"kfold\", \"montecarlo\", \"bootstrap\".")
 
         metrics = []
 
-        for i, (train_index, test_index) in enumerate(kf.split(data), 1):
+        for i, (train_index, test_index) in enumerate(val.split(data), 1):
             
             # for each fold, split data into training and test set
             train_data_, test_data_ = data.iloc[train_index], data.iloc[test_index]
@@ -87,12 +100,12 @@ class CrossValidation:
                 train_set, test_set = self._create_train_test(train_data_, test_data_, _from_perm_data=False)
                 
             # build model on training set, and test using test set, storing the metrics 
-            metrics.append(self.build_model(train_set, test_set, perm_test, mda))
-            # print(f"Fold {i} complete.")
+            metrics.append(self.build_model(train_set, test_set, perm_test, mda, vip))
+            print(f"Fold {i} complete.")
 
         return metrics
 
-    def run_all(self, perm_test: bool=True, mda: bool=True):
+    def run_all(self, perm_test: bool=True, mda: bool=False, vip: bool=False):
         """
         Takes two boolean parameters: perm_test determines whether permutation test with 
         random class allocations is desired, and mda runs a mean decrease in accuracy on 
@@ -105,9 +118,12 @@ class CrossValidation:
         for i in range(self.repetitions):
             if perm_test:
                 self.add_random_labels(self.estimator)
+
             equal_data = self.equalise_classes(self.estimator)
+
             equal_data = self.shuffle(equal_data)
-            self.metrics.append(self.external_cv(equal_data, perm_test=perm_test, mda=mda))
+
+            self.metrics.append(self.external_cv(equal_data, perm_test=perm_test, mda=mda, vip=vip, method=self.method))
 
             print(f"Repetition {i+1} complete.")
         
@@ -150,25 +166,42 @@ class CrossValidation:
 
         return train_set, test_set
 
-    def build_model(self, train_set: Union[OPLSData, PLSData], test_set: Union[OPLSData, PLSData], perm_test: bool, mda: bool):
+    def build_model(self, train_set: Union[OPLSData, PLSData], test_set: Union[OPLSData, PLSData], perm_test: bool, mda: bool, vip: bool):
         
         y_true = np.array([entry.class_ for entry in test_set.entries])
         
         if type(train_set) is OPLSData:
             # initialises opls attribute
-            t_matrix, t_ortho_matrix = train_set.get_scores()
+            t_matrix, t_ortho_matrix = train_set.get_scores(n_components=self.fix_components)
             
             y = train_set.opls.predict(test_set.scaled_data)
+
+            if vip:
+                vip_scores = train_set.vip_scores(train_set.opls.P[:, -1].reshape(-1, 1), train_set.opls.T[:, -1].reshape(-1, 1), train_set.opls.P_ortho, train_set.opls.T_ortho, train_set.opls.C)
         
         if type(train_set) is PLSData:
-            # initialise pls attribute
-            x_scores = train_set.get_scores()
+
+            if self.fix_components:
+                x_scores = train_set.get_scores(n_components=self.fix_components)
+                # train_set._optimise_components()
+            
+            else:
+                # initialise pls attribute
+                x_scores = train_set.get_scores()
 
             y = train_set.pls.predict(test_set.scaled_data)
 
+            # q2 = train_set.q2_y[-1]
+            # r2x = train_set.r2_x[-1]
+            # r2y = train_set.r2_y[-1]
+
             if mda:
                 mda_dict = self.mean_decrease_acc(train_set, test_set, y_true)
+            
+            if vip:
+                vip_scores = train_set.vip_scores(train_set.pls.x_weights_, train_set.pls.x_scores_, train_set.pls.y_weights_)
 
+        n_comp = train_set.n_components
 
         if test_set.control > test_set.case:
             y_pred = np.array([
@@ -203,6 +236,9 @@ class CrossValidation:
                 accuracy=accuracy,
                 sensitivity=sensitivity,
                 specificity=specificity,
+                q2=q2,
+                r2x=r2x,
+                r2y=r2y,
                 rand_conf_matrix=rand_conf_matrix,
                 rand_accuracy=rand_accuracy,
                 rand_sensitivity=rand_sensitivity,
@@ -210,11 +246,32 @@ class CrossValidation:
                 mda=mda_dict
                 )
             
+            if vip:
+                return Metrics(
+                                conf_matrix=conf_matrix,
+                                accuracy=accuracy,
+                                sensitivity=sensitivity,
+                                specificity=specificity,
+                                # q2=q2,
+                                # r2x=r2x,
+                                # r2y=r2y,
+                                n_comp=n_comp,
+                                rand_conf_matrix=rand_conf_matrix,
+                                rand_accuracy=rand_accuracy,
+                                rand_sensitivity=rand_sensitivity,
+                                rand_specificity=rand_specificity,
+                                vip=vip_scores
+                                )
+
             return Metrics(
             conf_matrix=conf_matrix,
             accuracy=accuracy,
             sensitivity=sensitivity,
             specificity=specificity,
+            # q2=q2,
+            # r2x=r2x,
+            # r2y=r2y,
+            n_comp=n_comp,
             rand_conf_matrix=rand_conf_matrix,
             rand_accuracy=rand_accuracy,
             rand_sensitivity=rand_sensitivity,
@@ -225,7 +282,10 @@ class CrossValidation:
             conf_matrix=conf_matrix,
             accuracy=accuracy,
             sensitivity=sensitivity,
-            specificity=specificity
+            specificity=specificity,
+            q2=q2,
+            r2x=r2x,
+            r2y=r2y
         )
 
     def add_random_labels(self, estimator: Union[OPLSData, PLSData]):
@@ -312,16 +372,34 @@ class CrossValidation:
                     mdas[0]
 
 if __name__ == "__main__":
-    test_data = OPLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
+    test_data = OPLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv", scaling='standard')
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1}, sort=True)
 
-    cv = CrossValidation(estimator=test_data, folds=10, repetitions=5)
+    test_data.get_scores(n_components=1)
+
+    # labels = test_data.scaled_test_data.loc[:, 'Class'].to_numpy().reshape(-1, 1)
+
+    # pred_labels = test_data.pls.predict(test_data.scaled_data)
+
+    # # roc = roc_curve(y_true, y_pred)
+    # # roc_auc = roc_auc_score(y_true, y_pred)
+    # # print(roc)
+
+
+
+    # RocCurveDisplay.from_predictions(labels, pred_labels)
+
+    # plt.show()
+
+    cv = CrossValidation(estimator=test_data, folds=10, repetitions=100, method="kfold", fix_components=10)
 
     metrics = cv.run_all(perm_test=True, mda=False)
     accs = []
     spec = []
     sens = []
     rand_accs = []
+    q2 = []
+    n_comp = []
     # mda = []
     for metric_list in metrics:
         for metric in metric_list:
@@ -329,11 +407,12 @@ if __name__ == "__main__":
             spec.append(metric.specificity)
             sens.append(metric.sensitivity)
             rand_accs.append(metric.rand_accuracy)
+            q2.append(metric.q2)
+            n_comp.append(metric.n_comp)
             # mda.append(metric.mda)
         
     print(np.mean(accs))
     print(np.mean(rand_accs))
-    # print(mda)
 
     # print(test_data.scaled_test_data.iloc[:, :2])
     # test_data.scaled_test_data['X.0.80....0.82.'] = np.random.permutation(test_data.scaled_test_data['X.0.80....0.82.'])
