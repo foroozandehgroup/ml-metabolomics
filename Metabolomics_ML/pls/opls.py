@@ -13,6 +13,9 @@ class OPLS:
         Fits OPLS model using NIPALS algorithm
         """
 
+        x = x.copy()
+        y = y.copy()
+
         n, p = x.shape
         npc = min(n, p)
 
@@ -57,18 +60,68 @@ class OPLS:
             p = np.dot(t, x) / np.dot(t, t)
             P[:, nc] = p
 
-        # orthogonal scores
+        # orthogonal
         self.T_ortho = T_ortho
         self.P_ortho = P_ortho
         self.W_ortho = W_ortho
 
-        # covariate weights
-        self._W_cov = tw
-
-        # predictive scores
+        # predictive
         self.T = T
         self.P = P
+        self.coef = tw * C[:, np.newaxis]
+
         self.C = C
+
+        tw = tw.reshape(-1, 1)
+        self.W = tw
     
-    def predict(self):
-        pass
+    def fit_transform(self, x: np.ndarray, y: np.ndarray):
+        
+        self.fit(x, y)
+
+        return self.T, self.C
+
+    def inverse_transform(self, x_scores: np.ndarray):
+        
+        return x_scores @ self.P.T
+
+    def transform(self, x_test: np.ndarray):
+        
+        return x_test @ self.P
+
+    def predict(self, x: np.ndarray, return_scores: bool=False):
+        
+        x = x.copy()
+        x = self.correct(x)
+
+        coef = self.coef[self.n_components - 1]
+        y = np.dot(x, coef)
+
+        if return_scores:
+            return y, np.dot(x, self.W)
+        
+        return y
+
+    def correct(self, x: np.ndarray, return_scores: bool=False):
+
+        x_corr = x.copy()
+
+        if x_corr.ndim == 1:
+            t = np.empty(self.n_components)
+            for nc in range(self.n_components):
+                t_ = np.dot(x_corr, self.W_ortho[:, nc])
+                x_corr -= t_ * self.P_ortho[:, nc]
+                t[nc] = t_
+        
+        else:
+            n, c = x_corr.shape
+            t = np.empty((n, self.n_components))
+            for nc in range(self.n_components):
+                t_ = np.dot(x_corr, self.W_ortho[:, nc])
+                x_corr -= t_[:, np.newaxis] * self.P_ortho[:, nc]
+                t[:, nc] = t_
+        
+        if return_scores:
+            return x_corr, t
+        
+        return x_corr
