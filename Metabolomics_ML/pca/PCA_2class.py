@@ -30,7 +30,7 @@ class PCAData(Data):
         if self.pca is None:
 
             # scale the data and initialise the scaled_data attribute
-            self._scale_data()
+            self._scale_data(method=self.scaling)
 
             self._pca = PCA(n_components=n_components, svd_solver='randomized')
             self._pca.fit_transform(self.scaled_data)
@@ -40,7 +40,7 @@ class PCAData(Data):
     def _optimise_pcs(self):
 
         if self.scaled_data is None:
-            self._scale_data()
+            self._scale_data(self.scaling)
 
         scaled_data_pd = self.scaled_test_data.iloc[:, 1:]
 
@@ -89,7 +89,7 @@ class PCAData(Data):
                 x_train, x_test = scaled_data_pd.iloc[train_index], scaled_data_pd.iloc[test_index]
 
                 # scaling each fold individually
-                x_train, x_test = self._static_scale(x_train), self._static_scale(x_test)
+                x_train, x_test = self._static_scale(x_train, self.scaling), self._static_scale(x_test, self.scaling)
 
                 # fit PCA model on training data
                 pca_cv = PCA(n_components=pc)
@@ -161,7 +161,7 @@ class PCAData(Data):
             self._n_components = n_components
         
         if self.scaled_data is None:
-            self._scale_data()
+            self._scale_data(self.scaling)
 
         x_data, y_data = self._split_data(keep_id=True)
         ids, integs = x_data
@@ -438,13 +438,13 @@ class PCAData(Data):
             vertices_rel = np.array([[-half_width, -half_height], [half_width, -half_height], [half_width, half_height], [-half_width, half_height]])
             vertices_rot = np.dot(R, vertices_rel.T).T
             vertices_abs = np.empty_like(vertices_rot)
-            
+
             for i in range(4):
                 vertices_abs[i, :] = vertices_rot[i, :] + centre.T
 
             x_extremes.extend([np.min(vertices_abs[:, 0]), np.max(vertices_abs[:, 0])])
             y_extremes.extend([np.min(vertices_abs[:, 1]), np.max(vertices_abs[:, 1])])
-        
+
         ax.set_xlim(min(x_extremes)*1.05, max(x_extremes)*1.05)
         ax.set_ylim(min(y_extremes)*1.05, max(y_extremes)*1.05)
 
@@ -456,9 +456,10 @@ class PCAData(Data):
 
         first_pc, second_pc = pcs
 
-        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colours, s=25, edgecolors='black', alpha=0.7)
-        for i, id in enumerate(id_labels):
-            ax.annotate(id, (np_scores[i, first_pc], np_scores[i, second_pc]), fontsize=fontsize)
+        ax.scatter(np_scores[:, first_pc], np_scores[:, second_pc], c=colours, s=25, edgecolors='black', alpha=0.7, zorder=3)
+        if fontsize:
+            for i, id in enumerate(id_labels):
+                ax.annotate(id, (np_scores[i, first_pc], np_scores[i, second_pc]), fontsize=fontsize)
 
         self._add_labels_scores(ax, legend_elements, pcs=pcs)
 
@@ -481,9 +482,9 @@ class PCAData(Data):
         first_pc, second_pc = pcs
 
         ax.set_title('Scores Plot')
-        ax.set_xlabel(f'PC{first_pc}')
-        ax.set_ylabel(f'PC{second_pc}')
-        ax.grid(linestyle='--')
+        ax.set_xlabel(f'$\mathrm{{PC}}_{first_pc}$')
+        ax.set_ylabel(f'$\mathrm{{PC}}_{second_pc}$')
+        ax.grid(linestyle='--', zorder=1)
         ax.legend(handles=legend_elements, loc='lower left', title='Classes', prop={'size': 8})
         if hasattr(ax, "set_zlabel"):
             ax.set_zlabel('PC3')
@@ -491,8 +492,8 @@ class PCAData(Data):
     @staticmethod
     def _add_labels_loadings(ax: plt.Axes):
         ax.set_title('Loadings')
-        ax.set_xlabel('PC1')
-        ax.set_ylabel('PC2')
+        ax.set_xlabel('$\mathrm{PC}_{1}$')
+        ax.set_ylabel('$\mathrm{PC}_{2}$')
         ax.grid(linestyle='--')
     
     def _plot_hotelling(self, first_scores: np.ndarray, second_scores: np.ndarray, q: float, figure: tuple, colour: str):
@@ -504,39 +505,50 @@ class PCAData(Data):
 
         cov = np.cov(scores.astype(float), rowvar=False)
 
-        chi2_val = stats.chi2.ppf(q, 2)
+        # chi2_val = stats.chi2.ppf(q, 2)
+        # ropls - uses whole dataset n, not class wise n?
+        f_val = stats.f.ppf(q, 2, scores.shape[0] - 2)
+        t2_val = (2 * (scores.shape[0] - 1) / (scores.shape[0] - 2)) * f_val
 
         eig_vals, eig_vecs = np.linalg.eigh(cov)
         eig_order = eig_vals.argsort()[::-1]
         eig_vals, eig_vecs = eig_vals[eig_order], eig_vecs[:, eig_order]
 
         angle = np.degrees(np.arctan2(*eig_vecs[:, 0][::-1]))
-        width, height = 2 * np.sqrt(chi2_val) * np.sqrt(eig_vals)
+        width, height = 2 * np.sqrt(t2_val) * np.sqrt(eig_vals)
 
-        ellipse = Ellipse(xy=(first_mean, second_mean), width=width, height=height, angle=angle, alpha=0.2, color=colour)
+        # width_chi, height_chi = 2 * np.sqrt(chi2_val) * np.sqrt(eig_vals)
+
+        ellipse = Ellipse(xy=(first_mean, second_mean), width=width, height=height, angle=angle, alpha=0.1, color=colour)
+        # ellipse_chi = Ellipse(xy=(first_mean, second_mean), width=width_chi, height=height_chi, angle=angle, alpha=0.3, color=colour)
         ax.add_artist(ellipse)
+        # ax.add_artist(ellipse_chi)
 
         return (np.array([[first_mean], [second_mean]]), width, height, angle)
 
     def plot_vars(self, vars_array: np.ndarray, threshold: float=None, cumulative: bool=False, figure: tuple=None):
-        rows = [f'PC{i}' for i in range(1, self.n_components+1)]
+        rows = [f'$\mathrm{{PC}}_{i}$' for i in range(1, self.n_components+1)]
+        cum_rows = ["$\mathrm{PC}_1$" if i == 1 else str(i) for i in range(1, self.n_components+1)]
         if figure is None:
             fig, ax = plt.subplots()
         else:
             fig, ax = figure
 
         if threshold is not None:
-            ax.axhline(threshold*100, color='red', linestyle='--')
+            ax.axhline(threshold*100, color='red', linestyle='--', linewidth=1)
 
         ax.set_title("Explained Variance")    
         if cumulative:
-            ax.bar(rows, np.cumsum(vars_array*100), edgecolor=(0, 0, 0, 1), color=(0, 0, 0, 0.3))
-            ax.set_ylabel("Cumulative Variance")
+            ax.bar(cum_rows, np.cumsum(vars_array*100), edgecolor=(0, 0, 0, 0.8), color=(0, 0, 0, 0.3))
+            ax.set_ylabel("Cumulative Variance (%)")
         else:
-            ax.bar(rows, vars_array*100, edgecolor=(0, 0, 0, 1), color=(0, 0, 0, 0.3), alpha=0.3)
+            ax.bar(rows, vars_array*100, edgecolor=(0, 0, 0, 0.8), color=(0, 0, 0, 0.3))
+            ax.plot(rows, vars_array*100, color='red', marker='x')
             ax.set_ylabel("% of total variance")
+        
+        return fig, ax
 
-    def plot_ttests(self, ttests: TTest):
+    def plot_ttests(self, ttests: TTest, colours: tuple=('green', 'blue')):
         
         ttest_figure_number = plt.gcf().number
 
@@ -572,7 +584,7 @@ class PCAData(Data):
                         stats = pc[feature_name]
 
                         current_ax.bar(
-                            [self.original_control, self.original_case], [stats.loc[self.control, 'Mean'], stats.loc[self.case, 'Mean']], color=['green', 'blue'], 
+                            [self.original_control, self.original_case], [stats.loc[self.control, 'Mean'], stats.loc[self.case, 'Mean']], color=colours, 
                             edgecolor='black', alpha=0.5, yerr=[stats.loc[self.control, 'SEM'], stats.loc[self.case, 'SEM']], capsize=10
                         )
 
@@ -611,20 +623,29 @@ class TTest:
 
 
 if __name__ == "__main__":
-    test_data = PCAData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
+    test_data = PCAData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\dataset_c.csv")
 
     # plots don't work without class_labels dict - cannot append strings into numpy array
-    test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
+    test_data.set_dataset_classes(control='AQP4', case='SPMS')
 
-    loadings_matrix = test_data.get_loadings(n_components=3)
+    print(test_data.test_data)
+
+    loadings_matrix = test_data.get_loadings(n_components=2)
     scores_matrix = test_data.get_scores()
-    test_data.get_vars(ratio=True)
+    vars_array = test_data.get_vars(ratio=True)
     test_data.get_quantiles(test_data.loadings_matrix, q=0.95)
     test_data.rank_loadings()
-    # test_data.run_ttests()
+    test_data.run_ttests()
 
-    test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2), hotelling=0.95, fontsize=10)
+    # test_data.plot_scores(test_data.scores_matrix, pcs=(1, 2), hotelling=0.95, fontsize=7, colours=('blue', 'red'))
+
+    # test_data._optimise_pcs()
+    # print(test_data.q2_array)
+    # print(test_data.r2_array)
+
+    # print(len(set(test_data._sig_loadings_labels)))
 
     # fig_list = test_data.plot_ttests(test_data.ttests)
 
     plt.show()
+
