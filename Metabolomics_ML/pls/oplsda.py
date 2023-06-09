@@ -10,6 +10,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 from dataclasses import dataclass
 from scipy import stats
+import collections
 
 from Metabolomics_ML.base.data import Data
 from Metabolomics_ML.pls.opls import OPLS
@@ -27,7 +28,7 @@ class OPLSData(Data):
         if self.opls is None:
             
             if self.scaled_data is None:
-                self._scale_data()
+                self._scale_data(self.scaling)
             
             self._opls = OPLS(n_components=n_components)
             self._opls.fit(self.scaled_data, self.scaled_test_data.loc[:, 'Class'])
@@ -37,7 +38,7 @@ class OPLSData(Data):
     def _optimise_components(self, dq2: bool=False):
        
         if self.scaled_data is None:
-            self._scale_data()
+            self._scale_data(self.scaling)
         
         # getting X and Y data
         x_data = self.scaled_test_data.iloc[:, 1:]
@@ -56,10 +57,14 @@ class OPLSData(Data):
         
         for nc in range(1, comps_up_to + 1):
             # 7-fold internal cross-validation - default used by SIMCA
-            kf = KFold(n_splits=7, shuffle=True)
+            kf = KFold(n_splits=7, shuffle=False)
 
             opls = OPLS(n_components=nc)
-            x_scores, y_scores = opls.fit_transform(self.scaled_data, y_data)
+            opls.fit(self.scaled_data, y_data)
+
+            # x_corr, t_corr = opls.correct(self.scaled_data, return_scores=True)
+
+            x_scores = opls.transform(self.scaled_data)
 
             # calculation of R2X (cumulative)
             recon_x = opls.inverse_transform(x_scores)
@@ -87,7 +92,7 @@ class OPLSData(Data):
                 #     y_test = self._static_scale(y_test)
                 
                 # apply independent scaling
-                x_train, x_test = self._static_scale(x_train), self._static_scale(x_test)
+                x_train, x_test = self._static_scale(x_train, self.scaling), self._static_scale(x_test, self.scaling)
                 # y_train = self._static_scale(y_train)
 
                 opls_cv = OPLS(n_components=nc)
@@ -125,6 +130,72 @@ class OPLSData(Data):
         self.r2_y = r2_y
         
         return max(2, len(self.q2_y))
+
+    def _optimise(self, dq2: bool=False):
+
+        if self.scaled_data is None:
+            self._scale_data(self.scaling)
+        
+        # getting X and Y data
+        x_data = self.scaled_test_data.iloc[:, 1:]
+        y_data = np.array(self.scaled_test_data.loc[:, 'Class'])
+
+        n, p = x_data.shape
+        npc0 = min(n, p)
+
+        # initialise arrays for Q2 and R2
+        q2_x, r2_x = [], []
+        q2_y, r2_y = [], []
+
+        ssx = collections.defaultdict(lambda: collections.defaultdict(list))
+        ssy = []
+        ypred, pressy = np.zeros((n, npc0)), np.zeros((n, npc0))
+        tortho, tpred = np.zeros((n, npc0)), np.zeros((n, npc0))
+        pcv = collections.defaultdict(list)
+
+        if self.n_components is None:
+            comps_up_to = len(self.test_data)
+        else:
+            comps_up_to = self.n_components
+        
+        kf = KFold(n_splits=7, shuffle=False)
+
+        for train_index, test_index in kf.split(x_data, y_data):
+            x_train, x_test = x_data.iloc[train_index], x_data.iloc[test_index]
+            y_train, y_test = y_data[train_index], y_data[test_index]
+
+            x_train, (train_mean, train_std) = self._static_scale(x_train, self.scaling, return_params=True)
+            x_test = self._static_scale(x_test, self.scaling, params=(train_mean, train_std))            
+        
+            ssy_tot = (y_test ** 2).sum()
+            ssx_tot = (x_test ** 2).sum()
+
+            npc = min(x_train.shape)
+
+            opls = OPLS(n_components=npc)
+            opls.fit(x_train, y_train)
+
+            for k in range(1, npc+1):
+
+                x_test_corr, t_corr = opls.correct(x_test, return_scores=True)
+                y_pred_k, t_pred_k = opls.predict(x_test_corr, return_scores=True)
+                t_pred_k = t_pred_k.reshape(-1)
+
+                tortho[test_index, k-1] = t_corr[:, 0]
+                tpred[test_index, k-1] = t_pred_k
+
+                # ssx[k]["corr"].append((x_test_corr ** 2).sum())
+                # x_test_ortho = np.dot(t_corr, opls.P_ortho[:, :k].T)
+                # ssx[k]["xyo"].append((x_test_ortho ** 2).sum())
+                # ssx[k]["total"].append(ssx_tot)
+
+                # tp = opls.T[:, k-1]
+                # pcv[k].append(np.dot(tp, x_train) / (tp ** 2).sum())
+
+                ypred[test_index, k-1] = y_pred_k
+                pressy[test_index, k-1] = (y_pred_k - y_test) ** 2
+
+            ssy.append(ssy_tot)
 
     def get_scores(self, n_components: int=None, keep_classes: bool=True):
         """
@@ -232,8 +303,7 @@ class OPLSData(Data):
 
         ax.set_xlim(min(x_extremes)*1.05, max(x_extremes)*1.05)
         ax.set_ylim(min(y_extremes)*1.05, max(y_extremes)*1.05)
-
-            
+          
     def _plot_hotelling(self, first_scores: np.ndarray, second_scores: np.ndarray, q: float, figure: tuple, colour: str):
         
         fig, ax = figure
@@ -257,8 +327,47 @@ class OPLSData(Data):
 
         return (np.array([[first_mean], [second_mean]]), width, height, angle)
 
+    def vip_scores(self, x_loadings: np.ndarray, x_scores: np.ndarray, x_loadings_ortho: 
+        np.ndarray, x_scores_ortho: np.ndarray, y_weights: np.ndarray):
+        """
+        OPLS algorithm for VIP4 as in Galindo-Prieto et al. Returns a list of tuples of the 
+        form (label, vip_score).
+        """
+        n_comp_ortho = x_loadings_ortho.shape[1]
+        n_features = x_loadings_ortho.shape[0]
 
+        if x_loadings.ndim == 1:
+            x_loadings = x_loadings.reshape(-1, 1)
+        if x_scores.ndim == 1:
+            x_scores = x_scores.reshape(-1, 1)
+        if x_loadings_ortho.ndim == 1:
+            x_loadings_ortho = x_loadings_ortho.reshape(-1, 1)
+        if x_scores_ortho.ndim == 1:
+            x_scores_ortho = x_scores_ortho.reshape(-1, 1)
+        if y_weights.ndim == 1:
+            y_weights = y_weights.reshape(-1, 1)
 
+        ssx_pred = np.sum((x_scores @ x_loadings.T) ** 2)
+        ssx_ortho = np.zeros(n_comp_ortho)
+
+        for col in range(n_comp_ortho):
+            i = np.sum((x_scores_ortho[:, col].reshape(-1, 1) @ x_loadings_ortho[:, col].reshape(-1, 1).T) ** 2)
+            ssx_ortho[col] = i
+        
+        ssx_cum = ssx_pred + np.sum(ssx_ortho)
+        ssy_pred = np.sum((x_scores @ y_weights[-1]) ** 2)
+
+        k_p = n_features / ((ssx_pred/ssx_cum) + (ssy_pred/ssy_pred))
+        x_loadings_norm = x_loadings / np.sqrt(np.sum(x_loadings ** 2, axis=0))
+        vip_p = np.sqrt(k_p * (x_loadings_norm ** 2 * ssx_pred/ssx_cum + x_loadings_norm ** 2))
+
+        k_o = n_features / (np.sum(ssx_ortho)/ssx_cum)
+        
+        x_loadings_ortho_norm = x_loadings_ortho / np.sqrt(np.sum(x_loadings_ortho ** 2, axis=0))
+        vip_o = np.sqrt(k_o * (np.sum(x_loadings_ortho_norm ** 2 * ssx_ortho, axis=1)/ssx_cum))
+
+        return {'pred': [(label, score.item()) for label, score in zip(self.labels, vip_p)], 
+                'ortho': [(label, score.item()) for label, score in zip(self.labels, vip_o)]}
 
     @property
     def n_components(self):
@@ -272,16 +381,25 @@ class OPLSData(Data):
 if __name__ == "__main__":
     test_data = OPLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
-    t_matrix, t_ortho_matrix = test_data.get_scores(n_components=3)
-    test_data.plot_scores(t_matrix, t_ortho_matrix, fontsize=10, colours=('blue', 'red'), components=(3, 3), hotelling=0.95)
+    t_matrix, t_ortho_matrix = test_data.get_scores(n_components=2)
+    test_data.plot_scores(t_matrix, t_ortho_matrix, fontsize=10, colours=('blue', 'red'), components=(1, 1), hotelling=0.95)
 
+    t_o = test_data.opls.T_ortho
     w_o = test_data.opls.W_ortho
     p_o = test_data.opls.P_ortho
 
-    x = w_o @ np.linalg.inv(p_o.T @ w_o)
+    t = test_data.opls.T[:, -1].reshape(-1, 1)
+    p = test_data.opls.P[:, -1].reshape(-1, 1)
+    w = test_data.opls.W[:, -1].reshape(-1, 1)
+    c = test_data.opls.C
 
-    x_corr = test_data.opls.correct(test_data.scaled_data)
-    print(x)
+    # p_norm = p / np.sqrt(np.sum(p ** 2, axis=0))
+
+    vip = test_data.vip_scores(p, t, p_o, t_o, c)
+
+    # loadings = [(label, np.abs(loading)) for label, loading in zip(test_data.labels, test_data.opls.W[:, -1])]
+
+    # print(sorted(loadings, key=lambda x: x[1]))
 
     # plt.show()
 
