@@ -5,7 +5,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, roc_curve, roc_auc_score, RocCurveDisplay
 from sklearn.model_selection import KFold
 from dataclasses import dataclass
 from scipy import stats
@@ -25,7 +25,7 @@ class PLSData(Data):
         if self.pls is None:
 
             # initialises the scaled_test_data attribute
-            self._scale_data()
+            self._scale_data(self.scaling)
             
             # scale set to False - sklearn uses different definition of standard
             # deviation for unit variance scaling 
@@ -37,13 +37,13 @@ class PLSData(Data):
     def _optimise_components(self, dq2: bool=False):
         
         if self.scaled_data is None:
-            self._scale_data()
+            self._scale_data(self.scaling)
         
         # getting X and Y data
         x_data = self.scaled_test_data.iloc[:, 1:]
         y_data = np.array(self.scaled_test_data.loc[:, 'Class'])
         y_data = y_data.reshape(-1, 1)
-        # y_data = self._static_scale(y_data)
+        # y_data = self._static_scale(y_data, self.scaling)
 
         # initialise arrays for Q2 and R2
         q2_x, r2_x = [], []
@@ -56,7 +56,7 @@ class PLSData(Data):
         
         for nc in range(1, comps_up_to + 1):
             # 7-fold internal cross-validation - default used by SIMCA
-            kf = KFold(n_splits=7, shuffle=True)
+            kf = KFold(n_splits=7, shuffle=False)
 
             pls = PLSRegression(n_components=nc)
             x_scores, y_scores = pls.fit_transform(self.scaled_data, y_data)
@@ -81,14 +81,17 @@ class PLSData(Data):
                 y_train, y_test = y_data[train_index], y_data[test_index]
 
                 # check if all y values are the same (since scaling will give NaNs)
-                # if len(np.unique(y_test)) == 1:
-                #     y_test = np.zeros(y_test.shape)
-                # else:
-                #     y_test = self._static_scale(y_test)
+                if len(np.unique(y_test)) == 1:
+                    y_test = np.zeros(y_test.shape)
+                else:
+                    y_test = self._static_scale(y_test, self.scaling)
                 
                 # apply independent scaling
-                x_train, x_test = self._static_scale(x_train), self._static_scale(x_test)
+                # x_train, x_test = self._static_scale(x_train, self.scaling), self._static_scale(x_test, self.scaling)
                 # y_train = self._static_scale(y_train)
+
+                x_train, (train_mean, train_std) = self._static_scale(x_train, self.scaling, return_params=True)
+                x_test = self._static_scale(x_test, self.scaling, params=(train_mean, train_std))
 
                 pls_cv = PLSRegression(n_components=nc)
                 pls_cv.fit(x_train, y_train)
@@ -124,7 +127,7 @@ class PLSData(Data):
         self.r2_y = r2_y
         
         return max(2, len(self.q2_y))
-    
+
     def get_loadings(self, n_components: int=None):
         
         if self.n_components is None:
@@ -142,7 +145,7 @@ class PLSData(Data):
         
         if self.n_components is None:
             if n_components is None:
-                self._n_components = 3 #self._optimise_components()
+                self._n_components = self._optimise_components()
             else:
                 self._n_components = n_components
         
@@ -287,7 +290,55 @@ class PLSData(Data):
 
         return [(label, score) for label, score in zip(self.labels, vip)]
     
-    
+    def plot_roc(self, folds: int=10, n_components: tuple=None, figure: tuple=None):
+
+        if n_components is None:
+            n_components = [self.n_components]
+
+        if figure:
+            fig, ax = figure
+        else:
+            fig, ax = plt.subplots()
+
+        aucs = []
+
+        colors = ['blue', 'red', 'purple']
+
+        for nc, color in zip(n_components, colors):
+
+            y_true = self.test_data.loc[:, 'Class'].to_numpy().reshape(-1, 1)
+            y_pred = np.zeros(shape=y_true.shape)
+            x_data = self.scaled_test_data.iloc[:, 1:]
+            kf = KFold(n_splits=folds, shuffle=True)
+
+            for train_index, test_index in kf.split(x_data, y_true):
+                x_train, x_test = x_data.iloc[train_index], x_data.iloc[test_index]
+                y_train, y_test = y_true[train_index], y_true[test_index]
+            
+                pls_cv = PLSRegression(n_components=nc)
+                pls_cv.fit(x_train, y_train)
+
+                y_pred_cv = pls_cv.predict(x_test)
+                y_pred[test_index] = y_pred_cv
+
+            y_true = y_true.flatten()
+            y_pred = y_pred.flatten()
+
+            y_true, y_pred = list(y_true), list(y_pred)
+
+            fpr, tpr, _ = roc_curve(y_true, y_pred)
+            aucs.append(roc_auc_score(y_true, y_pred))
+        
+            ax.plot(fpr, tpr, c=color)
+        
+        legend = [f"$d = {i}$ (AUC = {round(auc, 3):.3f})" for i, auc in zip(n_components, aucs)]
+        legend += ["Random"]
+
+        ax.plot([0, 1], [0, 1], linestyle='--', color=(0, 0, 0, 0.4))
+        ax.legend(legend, loc='lower right')
+        ax.set_xlabel("$1 - $ Specificity")
+        ax.set_ylabel("Sensitivity")
+
     @property
     def n_components(self):
         return getattr(self, "_n_components", None)
@@ -297,14 +348,12 @@ class PLSData(Data):
         return getattr(self, "_pls", None)
 
 if __name__ == "__main__":
-    test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv")
-    test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\Metabolomics_ML\thesis\datasets\test_data_shuffled.csv")
+    test_data = PLSData.new_from_csv(r"C:\Users\mfgroup\Documents\Daniel Alimadadian\Metabolomics_ML\tests\test_data.csv", scaling='standard')
     test_data.set_dataset_classes(control='RRMS', case='SPMS', class_labels={'control': -1, 'case': 1})
     
     scores_matrix = test_data.get_scores(n_components=3)
-    test_data.plot_scores(scores_matrix, colours=('blue', 'green'), components=(1, 2), hotelling=0.95)
-
-    # test_data._optimise_components()
+    
+    # test_data.plot_roc(folds=58, n_components=(3, 10, 20))
 
     coef = test_data.pls.coef_
     x_scores = test_data.pls.x_scores_
@@ -317,63 +366,35 @@ if __name__ == "__main__":
     y_weight = test_data.pls.y_weights_
     intercept = test_data.pls.intercept_
 
-    vipvn = test_data.vip_scores(x_weight, x_scores, y_weight)
-    
-    # x = test_data.scaled_data
-    # y = test_data.scaled_test_data.iloc[:, 0].to_numpy()
-    # y = y.reshape(-1, 1)
-    # matrix = x @ x.T @ y @ y.T
-    # print(matrix.shape)
-
-    # eigs = np.linalg.eigh(matrix.astype(float))
-    # eigv = eigs[0].reshape(-1, 1)
-    # print(eigv)
-    # print(x_scores[:, 0])
+    # vipvn = test_data.vip_scores(x_weight, x_scores, y_weight)
 
     y = test_data.scaled_test_data.loc[:, 'Class'].to_numpy()
     y = y.reshape(-1, 1)
-    y = test_data._static_scale(y)
+    # y = test_data._static_scale(y, method='standard')
     x = test_data.scaled_data
 
-    u = y
-    w = x.T @ u / (u.T @ u)
-    w /= np.linalg.norm(w)
+    u = y.copy()
+    w = x.T @ u / np.linalg.norm(x.T @ u)
     t = x @ w
-    c = y.T @ t / (t.T @ t)
-    c /= np.linalg.norm(c)
-    c = c[0][0]
-    u = y.T * c
+    c = y.T @ t / np.linalg.norm(t.T @ t)
+    u = y @ c
 
-    # x -= t @ p.T
-    # y -= u 
+    p = t.T @ x / np.linalg.norm(t.T @ t)
 
-    # p = x.T @ t / (t.T @ t)
-    # q = y @ u / (u.T @ u)
+    x = x - t @ p
+    y = y - u @ c.T
 
-    # gv = x.T @ y @ y.T @ x @ w * 0.17411361259353422 / 9824.407775555617
+    u = y.copy()
+    w = x.T @ u / np.linalg.norm(x.T @ u)
+    t = x @ w
+    c = y.T @ t / np.linalg.norm(t.T @ t)
+    u = y @ c
 
-    preds = x @ x_load @ y_load.T
-    preds_ = [-1 if num < 0 else 1 for num in preds]
-    tot = []
-    for true, pred in zip(y, preds_):
-        if (true < 0 and pred < 0) or (true > 0 and pred > 0):
-            tot.append(0)
-        else:
-            tot.append(1)
+    p = t.T @ x / np.linalg.norm(t.T @ t)
+    q = y.T * c / np.linalg.norm(u.T @ u)
 
+    print(u * q)
 
-    # print(x_load @ y_load.T)
-    # print(x @ x_load - x_scores)
-    # print(x_scores)
-
-    print(x_scores)
-    print(y_weight)
-
-    a = np.array([[1, 2, 3], [2, 3, 4]])
-    b = np.array([3, 3, 3])
-
-    print(np.multiply(a, b))
-
-    # plt.show()
+    plt.show()
 
 
