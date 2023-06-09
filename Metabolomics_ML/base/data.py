@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Literal
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
@@ -10,9 +10,10 @@ class Data:
     test_data: pd.DataFrame
     labels: list
     entries: list[Entry]
+    scaling: Literal['standard', 'pareto', 'range']
 
     @classmethod
-    def new_from_csv(cls, fname: str):
+    def new_from_csv(cls, fname: str, scaling: Literal['standard', 'pareto', 'range']='standard'):
         """
         Creates a new Data class from test data.
 
@@ -30,10 +31,10 @@ class Data:
         if 'ID' in test_data.columns:
             test_data = test_data.set_index('ID')
 
-        return cls(test_data, labels, entries)
+        return cls(test_data, labels, entries, scaling)
 
     @classmethod
-    def new_from_df(cls, df: pd.DataFrame, _from_perm_data: bool=False):
+    def new_from_df(cls, df: pd.DataFrame, _from_perm_data: bool=False, scaling: Literal['standard', 'pareto', 'range']='standard'):
         """
         Creates a new Data class from a Pandas DataFrame.
 
@@ -55,7 +56,7 @@ class Data:
         if _from_perm_data:
             df = df.drop(columns='Random', inplace=False)
 
-        return cls(df, labels, entries)
+        return cls(df, labels, entries, scaling)
     
     @staticmethod
     def _get_entries_from_data(data: pd.DataFrame, _from_perm_data: bool=False):
@@ -121,39 +122,41 @@ class Data:
         control_ids = []
         case_ids = []
 
-        if class_labels is not None:
-            for entry in self.entries:
-                if entry.class_ == self.original_control:
-                    entry.class_ = class_labels['control']
-                    control_ids.append(entry.id)
-                else:
-                    entry.class_ = class_labels['case']
-                    case_ids.append(entry.id)
-            
-            self.control_ids = control_ids
-            self.case_ids = case_ids
-            
-            for i in range(len(self.entries)):
-                if self.test_data.loc[:,'Class'].iloc[i] == self.original_control:
-                    self.test_data.loc[:,'Class'].iloc[i] = class_labels['control']
-                else:
-                    self.test_data.loc[:,'Class'].iloc[i] = class_labels['case']
+        if class_labels is None:
+            class_labels = {'control': -1, 'case': 1}
 
-            self.control = class_labels['control']
-            self.case = class_labels['case']
+        for entry in self.entries:
+            if entry.class_ == self.original_control:
+                entry.class_ = class_labels['control']
+                control_ids.append(entry.id)
+            else:
+                entry.class_ = class_labels['case']
+                case_ids.append(entry.id)
+        
+        self.control_ids = control_ids
+        self.case_ids = case_ids
+        
+        for i in range(len(self.entries)):
+            if self.test_data.loc[:,'Class'].iloc[i] == self.original_control:
+                self.test_data.loc[:,'Class'].iloc[i] = class_labels['control']
+            else:
+                self.test_data.loc[:,'Class'].iloc[i] = class_labels['case']
 
-            # check classes - if no instances exist, return zero
-            try:
-                self.num_control = self.test_data['Class'].value_counts()[self.control]
-            except KeyError:
-                self.num_control = 0
+        self.control = class_labels['control']
+        self.case = class_labels['case']
 
-            try:
-                self.num_case = self.test_data['Class'].value_counts()[self.case]
-            except KeyError:
-                self.num_case = 0
+        # check classes - if no instances exist, return zero
+        try:
+            self.num_control = self.test_data['Class'].value_counts()[self.control]
+        except KeyError:
+            self.num_control = 0
 
-            self.num_classes = len(class_labels)
+        try:
+            self.num_case = self.test_data['Class'].value_counts()[self.case]
+        except KeyError:
+            self.num_case = 0
+
+        self.num_classes = len(class_labels)
         
         if sort:
             self.entries = sorted(self.entries, key=lambda entry: entry.class_)
@@ -207,11 +210,14 @@ class Data:
         else:
             x_data = np.array([entry.integs for entry in self.entries])
 
-        y_data = np.array([entry.class_ for entry in self.entries])
+        if hasattr(self, "y_data"):
+            y_data = self.y_data
+        else:    
+            y_data = np.array([entry.class_ for entry in self.entries])
 
         return x_data, y_data
     
-    def _scale_data(self, method: str='standard'):
+    def _scale_data(self, method: Literal['standard', 'pareto', 'range']):
         """
         Scales data: currently only standard scaling supported (zero mean and unit variance).
         Initialises scaled_test_data attribute, which presents scaled data as a pandas 
@@ -230,31 +236,48 @@ class Data:
             self._scaled_data = scaled_data.to_numpy()
             self._scaled_y_data = scaled_y_data
 
-            scaled_data.insert(0, column='Class', value=scaled_y_data)
+            scaled_data.insert(0, column='Class', value=y_data)
             self.scaled_test_data = scaled_data
 
         return self.scaled_data
         ### allow option for scaling method
 
-    @staticmethod
-    def _static_scale(data: Union[pd.DataFrame, np.ndarray], method: str='standard'):
+    def _static_scale(self, data: Union[pd.DataFrame, np.ndarray], method: Literal['standard', 'pareto', 'range'], params: tuple=None, return_params: bool=False):
         """
-        Method for scaling indiviudal dataframes independently.
+        Method for scaling indiviudal dataframes independently. Params gives option to scale 
         """
+        if params:
+            mean, std = params
+        else:
+            mean = data.mean()
+            std = data.std()
+
         if method == 'standard':
-            scaled_data = (data - data.mean())/data.std()
+            scaled_data = (data - mean)/std
         elif method == 'pareto':
-            scaled_data = (data - data.mean())/np.sqrt(data.std())
+            scaled_data = (data - mean)/np.sqrt(std)
+        elif method == 'range':
+            # add range scaling
+            if hasattr(data, "apply"):
+                scaled_data = data.apply(self._range_scale, axis=0)
+            else:
+                scaled_data = np.apply_along_axis(self._range_scale, axis=0, arr=data)
+        else:
+            # no scaling
+            scaled_data = data
         
-        return scaled_data
+        if return_params:
+            return scaled_data, (mean, std)
+        else:
+            return scaled_data
+
+    @staticmethod
+    def _range_scale(column):
+        return (column - np.mean(column)) / (column.max() - column.min())
 
     @property
     def scaled_data(self):
         return getattr(self, "_scaled_data", None)
-    
-    @property
-    def scaling_method(self):
-        return getattr(self, "_scaling_method", None)
     
     @property
     def rand_scaled_data(self) -> pd.DataFrame:
