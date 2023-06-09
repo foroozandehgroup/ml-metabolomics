@@ -7,11 +7,19 @@ class Metrics:
     accuracy: float
     sensitivity: float
     specificity: float
+    q2: float=None
+    r2x: float=None
+    r2y: float=None
+    n_comp: int=None
     rand_conf_matrix: np.ndarray=None
     rand_accuracy: float=None
     rand_sensitivity: float=None
     rand_specificity: float=None
+    rand_q2: float=None
+    rand_r2x: float=None
+    rand_r2y: float=None
     mda: dict=None
+    vip: list[tuple]=None
 
 
 def sensitivity_score(conf_matrix: np.ndarray):
